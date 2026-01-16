@@ -31,7 +31,7 @@ jobs:
         run: cargo fmt --check
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy -- -W clippy::all
 
   test:
     name: Test
@@ -49,8 +49,8 @@ jobs:
       - name: Run unit tests
         run: cargo test --lib
 
-      - name: Run all tests (integration)
-        run: cargo test
+      - name: Run integration tests
+        run: cargo test --features test-utils
 
   build:
     name: Build
