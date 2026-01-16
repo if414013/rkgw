@@ -61,9 +61,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 ### Prerequisites
 
 - Rust 1.75+ (install via [rustup](https://rustup.rs/))
-- One of the following:
-  - [Kiro IDE](https://kiro.dev/) with logged in account, OR
-  - [Kiro CLI](https://kiro.dev/cli/) with AWS SSO (Builder ID)
+- [Kiro CLI](https://kiro.dev/cli/) installed and logged in with AWS SSO (Builder ID)
 
 ### Installation
 
@@ -95,8 +93,8 @@ The server will be available at `http://localhost:8000`
 Create a `.env` file in the project root:
 
 ```env
-# Required - Path to credentials file
-KIRO_CREDS_FILE="~/.aws/sso/cache/kiro-auth-token.json"
+# Required - Path to kiro-cli SQLite database
+KIRO_CLI_DB_FILE="~/.kiro/data.db"
 
 # Password to protect YOUR proxy server
 PROXY_API_KEY="my-super-secret-password-123"
@@ -105,16 +103,7 @@ PROXY_API_KEY="my-super-secret-password-123"
 KIRO_REGION="us-east-1"
 ```
 
-### Credentials Sources
-
-The gateway supports multiple credential sources:
-
-1. **JSON Credentials File** — From Kiro IDE or CLI
-2. **Environment Variables** — Direct token configuration
-3. **AWS SSO Credentials** — From kiro-cli with Builder ID
-4. **SQLite Database** — From kiro-cli data store
-
-See the original [kiro-gateway documentation](https://github.com/jwadow/kiro-gateway#%EF%B8%8F-configuration) for detailed configuration options.
+The gateway reads credentials from the kiro-cli SQLite database and automatically refreshes tokens before expiration.
 
 ---
 
