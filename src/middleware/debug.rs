@@ -18,12 +18,12 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
+use chrono::Local;
 use http_body_util::BodyExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
 use tokio::sync::RwLock;
-use chrono::Local;
 
 use crate::config::DebugMode;
 use crate::routes::AppState;
@@ -44,7 +44,7 @@ struct DebugRequestState {
 pub static DEBUG_LOGGER: Lazy<DebugLogger> = Lazy::new(|| DebugLogger::new());
 
 /// Debug logger for capturing request/response data
-/// 
+///
 /// Singleton pattern matching Python's debug_logger implementation.
 /// Supports three modes:
 /// - off: logging disabled
@@ -85,7 +85,7 @@ impl DebugLogger {
     }
 
     /// Prepare for a new request
-    /// 
+    ///
     /// In "all" mode: clears the logs folder.
     /// In "errors" mode: clears buffers.
     pub async fn prepare_new_request(&self) {
@@ -102,7 +102,10 @@ impl DebugLogger {
             if let Err(e) = self.clear_debug_dir().await {
                 tracing::warn!("[DebugLogger] Error preparing directory: {}", e);
             } else {
-                tracing::debug!("[DebugLogger] Directory {} cleared for new request.", self.debug_dir.display());
+                tracing::debug!(
+                    "[DebugLogger] Directory {} cleared for new request.",
+                    self.debug_dir.display()
+                );
             }
         }
     }
@@ -117,7 +120,7 @@ impl DebugLogger {
     }
 
     /// Log request body (from client, OpenAI/Anthropic format)
-    /// 
+    ///
     /// In "all" mode: writes immediately to file.
     /// In "errors" mode: buffers.
     pub async fn log_request_body(&self, body: Bytes) {
@@ -136,7 +139,7 @@ impl DebugLogger {
     }
 
     /// Log Kiro request body (transformed request to Kiro API)
-    /// 
+    ///
     /// In "all" mode: writes immediately to file.
     /// In "errors" mode: buffers.
     pub async fn log_kiro_request_body(&self, body: Bytes) {
@@ -155,7 +158,7 @@ impl DebugLogger {
     }
 
     /// Log raw response chunk (from Kiro API)
-    /// 
+    ///
     /// In "all" mode: appends immediately to file.
     /// In "errors" mode: buffers.
     pub async fn log_raw_chunk(&self, chunk: Bytes) {
@@ -174,7 +177,7 @@ impl DebugLogger {
     }
 
     /// Log modified response chunk (to client)
-    /// 
+    ///
     /// In "all" mode: appends immediately to file.
     /// In "errors" mode: buffers.
     pub async fn log_modified_chunk(&self, chunk: Bytes) {
@@ -193,7 +196,7 @@ impl DebugLogger {
     }
 
     /// Log an application log message
-    /// 
+    ///
     /// These are collected and written to app_logs.txt
     pub async fn log_app_message(&self, level: &str, module: &str, message: &str) {
         if !self.is_enabled().await {
@@ -227,7 +230,7 @@ impl DebugLogger {
     }
 
     /// Flush buffers on error
-    /// 
+    ///
     /// In "errors" mode: flushes buffers and saves error_info.
     /// In "all" mode: only saves error_info (data already written).
     pub async fn flush_on_error(&self, status_code: u16, error_message: &str) {
@@ -302,7 +305,7 @@ impl DebugLogger {
     }
 
     /// Discard buffers without writing
-    /// 
+    ///
     /// Called when request completed successfully in "errors" mode.
     /// In "all" mode, writes app logs even for successful requests.
     pub async fn discard_buffers(&self) {
@@ -520,11 +523,7 @@ pub async fn debug_middleware(
         Ok(collected) => collected.to_bytes(),
         Err(e) => {
             tracing::warn!("Failed to read request body: {}", e);
-            return (
-                StatusCode::BAD_REQUEST,
-                "Failed to read request body",
-            )
-                .into_response();
+            return (StatusCode::BAD_REQUEST, "Failed to read request body").into_response();
         }
     };
 

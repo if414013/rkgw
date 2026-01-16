@@ -23,31 +23,31 @@ pub struct KiroEvent {
     /// Event type (content, thinking, tool_use, usage, context_usage, error)
     #[serde(rename = "type")]
     pub event_type: String,
-    
+
     /// Text content (for content events)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    
+
     /// Thinking/reasoning content (for thinking events)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_content: Option<String>,
-    
+
     /// Tool use data (for tool_use events)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_use: Option<ToolUse>,
-    
+
     /// Usage/metering data (for usage events)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
-    
+
     /// Context usage percentage (for context_usage events)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_usage_percentage: Option<f64>,
-    
+
     /// Whether this is the first thinking chunk
     #[serde(default)]
     pub is_first_thinking_chunk: bool,
-    
+
     /// Whether this is the last thinking chunk
     #[serde(default)]
     pub is_last_thinking_chunk: bool,
@@ -91,28 +91,30 @@ pub struct StreamResult {
 /// 2. By name+arguments - remove complete duplicates
 pub fn deduplicate_tool_calls(tool_calls: Vec<ToolUse>) -> Vec<ToolUse> {
     use std::collections::{HashMap, HashSet};
-    
+
     if tool_calls.is_empty() {
         return tool_calls;
     }
-    
+
     // First deduplicate by id - keep tool call with non-empty arguments
     let mut by_id: HashMap<String, ToolUse> = HashMap::new();
     let mut without_id: Vec<ToolUse> = Vec::new();
-    
+
     for tc in tool_calls.iter() {
         if tc.tool_use_id.is_empty() {
             without_id.push(tc.clone());
             continue;
         }
-        
+
         if let Some(existing) = by_id.get(&tc.tool_use_id) {
             // Duplicate by id exists - keep the one with more arguments
             let existing_args = serde_json::to_string(&existing.input).unwrap_or_default();
             let current_args = serde_json::to_string(&tc.input).unwrap_or_default();
-            
+
             // Prefer non-empty arguments
-            if current_args != "{}" && (existing_args == "{}" || current_args.len() > existing_args.len()) {
+            if current_args != "{}"
+                && (existing_args == "{}" || current_args.len() > existing_args.len())
+            {
                 tracing::debug!(
                     "Replacing tool call {} with better arguments: {} -> {}",
                     tc.tool_use_id,
@@ -125,24 +127,24 @@ pub fn deduplicate_tool_calls(tool_calls: Vec<ToolUse>) -> Vec<ToolUse> {
             by_id.insert(tc.tool_use_id.clone(), tc.clone());
         }
     }
-    
+
     // Collect tool calls: first those with id, then without id
     let result_with_id: Vec<ToolUse> = by_id.into_values().collect();
-    
+
     // Now deduplicate by name+arguments for all
     let mut seen: HashSet<String> = HashSet::new();
     let mut unique: Vec<ToolUse> = Vec::new();
-    
+
     for tc in result_with_id.into_iter().chain(without_id.into_iter()) {
         let args_str = serde_json::to_string(&tc.input).unwrap_or_default();
         let key = format!("{}-{}", tc.name, args_str);
-        
+
         if !seen.contains(&key) {
             seen.insert(key);
             unique.push(tc);
         }
     }
-    
+
     if tool_calls.len() != unique.len() {
         tracing::debug!(
             "Deduplicated tool calls: {} -> {}",
@@ -150,7 +152,7 @@ pub fn deduplicate_tool_calls(tool_calls: Vec<ToolUse>) -> Vec<ToolUse> {
             unique.len()
         );
     }
-    
+
     unique
 }
 
@@ -159,7 +161,7 @@ pub fn deduplicate_tool_calls(tool_calls: Vec<ToolUse>) -> Vec<ToolUse> {
 // ==================================================================================================
 
 /// Accumulates tool call data across multiple stream events.
-/// 
+///
 /// Kiro API sends tool calls in multiple events:
 /// 1. {"name": "...", "toolUseId": "..."} - tool start
 /// 2. {"input": "...", "name": "...", "toolUseId": "..."} - input chunks (multiple)
@@ -183,31 +185,34 @@ impl ToolCallAccumulator {
     pub fn new() -> Self {
         Self::default()
     }
-    
+
     /// Process a tool-related event and return a completed tool if ready
-    /// 
+    ///
     /// Kiro API sends tool events in this format:
     /// - First event: {"name": "Bash", "toolUseId": "xxx", "input": "..."}
     /// - Continuation events: {"name": "Bash", "toolUseId": "xxx", "input": "..."} (same toolUseId!)
     /// - Stop event: {"stop": true}
-    /// 
+    ///
     /// IMPORTANT: Kiro sends `name` and `toolUseId` in EVERY input chunk, not just the first one.
     /// We must check if it's the SAME tool (same toolUseId) and append input, not start a new tool.
     pub fn process_event(&mut self, json: &Value) -> Option<ToolUse> {
         tracing::debug!("ToolCallAccumulator::process_event: {}", json);
-        
+
         // Extract toolUseId if present
-        let event_tool_use_id = json.get("toolUseId")
+        let event_tool_use_id = json
+            .get("toolUseId")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        
+
         // Check if this is a continuation of the current tool (same toolUseId)
-        let is_same_tool = if let (Some(ref current), Some(ref event_id)) = (&self.current_tool, &event_tool_use_id) {
+        let is_same_tool = if let (Some(ref current), Some(ref event_id)) =
+            (&self.current_tool, &event_tool_use_id)
+        {
             !current.tool_use_id.is_empty() && current.tool_use_id == *event_id
         } else {
             false
         };
-        
+
         // If we have name field, it could be a new tool start OR a continuation with name repeated
         if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
             if is_same_tool {
@@ -217,106 +222,118 @@ impl ToolCallAccumulator {
                     if let Some(input) = json.get("input") {
                         match input {
                             Value::String(s) => {
-                                tracing::debug!("Appending input string: {} chars, total now: {}", s.len(), tool.input_str.len() + s.len());
+                                tracing::debug!(
+                                    "Appending input string: {} chars, total now: {}",
+                                    s.len(),
+                                    tool.input_str.len() + s.len()
+                                );
                                 tool.input_str.push_str(s);
-                            },
+                            }
                             v => {
                                 let s = serde_json::to_string(v).unwrap_or_default();
                                 tracing::debug!("Appending input json: {} chars", s.len());
                                 tool.input_str.push_str(&s);
-                            },
+                            }
                         }
                     }
                 }
-                
+
                 // Check if this event also has stop
                 if json.get("stop").and_then(|v| v.as_bool()).unwrap_or(false) {
                     tracing::debug!("Continuation event has stop=true, finalizing");
                     return self.finalize_current();
                 }
-                
+
                 return None;
             } else {
                 // Different toolUseId or no current tool - this is a NEW tool start
-                tracing::debug!("Tool start detected: name={}, toolUseId={:?}", name, event_tool_use_id);
-                
+                tracing::debug!(
+                    "Tool start detected: name={}, toolUseId={:?}",
+                    name,
+                    event_tool_use_id
+                );
+
                 // Finalize previous tool if exists
                 let completed = self.finalize_current();
-                
+
                 let tool_use_id = event_tool_use_id.unwrap_or_default();
-                
+
                 // Get initial input if present
                 let input_str = match json.get("input") {
                     Some(Value::String(s)) => {
                         tracing::debug!("Initial input (string): {} chars", s.len());
                         s.clone()
-                    },
+                    }
                     Some(v) => {
                         let s = serde_json::to_string(v).unwrap_or_default();
                         tracing::debug!("Initial input (json): {} chars", s.len());
                         s
-                    },
+                    }
                     None => {
                         tracing::debug!("No initial input");
                         String::new()
-                    },
+                    }
                 };
-                
+
                 self.current_tool = Some(AccumulatingTool {
                     tool_use_id,
                     name: name.to_string(),
                     input_str,
                 });
-                
+
                 // Check if this event also has stop
                 if json.get("stop").and_then(|v| v.as_bool()).unwrap_or(false) {
                     tracing::debug!("Tool has stop=true, finalizing immediately");
                     return self.finalize_current();
                 }
-                
+
                 return completed;
             }
         }
-        
+
         // Tool input continuation without name: {"input": "...", ...}
         if let Some(input) = json.get("input") {
             tracing::debug!("Tool input continuation detected (no name field)");
             if let Some(ref mut tool) = self.current_tool {
                 match input {
                     Value::String(s) => {
-                        tracing::debug!("Appending input string: {} chars, total now: {}", s.len(), tool.input_str.len() + s.len());
+                        tracing::debug!(
+                            "Appending input string: {} chars, total now: {}",
+                            s.len(),
+                            tool.input_str.len() + s.len()
+                        );
                         tool.input_str.push_str(s);
-                    },
+                    }
                     v => {
                         let s = serde_json::to_string(v).unwrap_or_default();
                         tracing::debug!("Appending input json: {} chars", s.len());
                         tool.input_str.push_str(&s);
-                    },
+                    }
                 }
             } else {
                 tracing::warn!("Got input event but no current tool!");
             }
-            
+
             // Check if this event also has stop
             if json.get("stop").and_then(|v| v.as_bool()).unwrap_or(false) {
                 tracing::debug!("Input event has stop=true, finalizing");
                 return self.finalize_current();
             }
         }
-        
+
         // Tool stop: {"stop": true}
         if json.get("stop").and_then(|v| v.as_bool()).unwrap_or(false) {
             tracing::debug!("Tool stop detected");
             return self.finalize_current();
         }
-        
+
         None
     }
-    
+
     /// Finalize current tool and return it
     fn finalize_current(&mut self) -> Option<ToolUse> {
         let tool = self.current_tool.take()?;
-        
+
         tracing::debug!(
             "Finalizing tool '{}' with raw arguments: {}",
             tool.name,
@@ -326,10 +343,13 @@ impl ToolCallAccumulator {
                 tool.input_str.clone()
             }
         );
-        
+
         // Parse accumulated input string as JSON
         let input = if tool.input_str.is_empty() {
-            tracing::debug!("Tool '{}' has empty arguments string (will be deduplicated)", tool.name);
+            tracing::debug!(
+                "Tool '{}' has empty arguments string (will be deduplicated)",
+                tool.name
+            );
             Value::Object(Default::default())
         } else {
             match serde_json::from_str::<Value>(&tool.input_str) {
@@ -359,17 +379,17 @@ impl ToolCallAccumulator {
                 }
             }
         };
-        
+
         let completed = ToolUse {
             tool_use_id: tool.tool_use_id,
             name: tool.name,
             input,
         };
-        
+
         self.completed_tools.push(completed.clone());
         Some(completed)
     }
-    
+
     /// Finalize any remaining tool at end of stream
     pub fn finalize(&mut self) -> Option<ToolUse> {
         self.finalize_current()
@@ -412,7 +432,7 @@ impl SseParser {
             tool_accumulator: ToolCallAccumulator::new(),
         }
     }
-    
+
     /// Feed bytes into the parser and extract complete events.
     ///
     /// Returns a vector of JSON events.
@@ -420,14 +440,14 @@ impl SseParser {
         // Convert bytes to string, ignoring invalid UTF-8
         let text = String::from_utf8_lossy(chunk);
         self.buffer.push_str(&text);
-        
+
         let mut events = Vec::new();
-        
+
         // Keep extracting events while we can find patterns
         loop {
             // Find the earliest pattern in the buffer
             let mut earliest_pos: Option<usize> = None;
-            
+
             for pattern in EVENT_PATTERNS {
                 if let Some(pos) = self.buffer.find(pattern) {
                     if earliest_pos.is_none() || pos < earliest_pos.unwrap() {
@@ -435,44 +455,48 @@ impl SseParser {
                     }
                 }
             }
-            
+
             let Some(json_start) = earliest_pos else {
                 break;
             };
-            
+
             // Find the matching closing brace
             let Some(json_end) = find_matching_brace(&self.buffer, json_start) else {
                 // JSON not complete yet, wait for more data
                 break;
             };
-            
+
             // Extract the JSON string
             let json_str = &self.buffer[json_start..=json_end];
-            
+
             // Try to parse it
             match serde_json::from_str::<Value>(json_str) {
                 Ok(json) => {
                     events.push(json);
                 }
                 Err(e) => {
-                    warn!("Failed to parse JSON: {} - {}", e, &json_str[..json_str.len().min(100)]);
+                    warn!(
+                        "Failed to parse JSON: {} - {}",
+                        e,
+                        &json_str[..json_str.len().min(100)]
+                    );
                 }
             }
-            
+
             // Remove the processed part from buffer
             self.buffer = self.buffer[json_end + 1..].to_string();
         }
-        
+
         Ok(events)
     }
-    
+
     /// Finalize parsing and return any remaining buffered data.
     #[allow(dead_code)]
     pub fn finalize(&mut self) -> Result<Vec<Value>, ApiError> {
         if self.buffer.trim().is_empty() {
             return Ok(Vec::new());
         }
-        
+
         // Try to extract any remaining events
         self.feed(&[])
     }
@@ -489,33 +513,33 @@ impl SseParser {
 /// return as soon as we find the matching brace.
 fn find_matching_brace(text: &str, start_pos: usize) -> Option<usize> {
     let bytes = text.as_bytes();
-    
+
     if start_pos >= bytes.len() || bytes[start_pos] != b'{' {
         return None;
     }
-    
+
     let mut brace_count = 0;
     let mut in_string = false;
     let mut escape_next = false;
-    
+
     for i in start_pos..bytes.len() {
         let ch = bytes[i];
-        
+
         if escape_next {
             escape_next = false;
             continue;
         }
-        
+
         if ch == b'\\' && in_string {
             escape_next = true;
             continue;
         }
-        
+
         if ch == b'"' {
             in_string = !in_string;
             continue;
         }
-        
+
         if !in_string {
             if ch == b'{' {
                 brace_count += 1;
@@ -527,7 +551,7 @@ fn find_matching_brace(text: &str, start_pos: usize) -> Option<usize> {
             }
         }
     }
-    
+
     None
 }
 
@@ -536,15 +560,18 @@ fn find_matching_brace(text: &str, start_pos: usize) -> Option<usize> {
 // ==================================================================================================
 
 /// Converts Kiro API JSON events to KiroEvent objects.
-/// 
+///
 /// Tool events are processed through the accumulator to properly combine
 /// streamed tool input chunks into complete tool calls.
-pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAccumulator) -> Option<KiroEvent> {
+pub fn parse_kiro_event_with_accumulator(
+    json: &Value,
+    tool_acc: &mut ToolCallAccumulator,
+) -> Option<KiroEvent> {
     // Skip followupPrompt events
     if json.get("followupPrompt").is_some() {
         return None;
     }
-    
+
     // Content event: {"content": "Hello"}
     if let Some(content) = json.get("content").and_then(|v| v.as_str()) {
         return Some(KiroEvent {
@@ -558,14 +585,18 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
             is_last_thinking_chunk: false,
         });
     }
-    
+
     // Tool events: {"name": ...}, {"input": ...}, {"stop": true}
     // These are processed through the accumulator
     if json.get("name").is_some() || json.get("input").is_some() || json.get("stop").is_some() {
         tracing::info!(
             "Tool event detected: name={:?}, input={:?}, stop={:?}",
             json.get("name"),
-            json.get("input").map(|v| if v.is_string() { format!("string({} chars)", v.as_str().unwrap_or("").len()) } else { format!("{:?}", v) }),
+            json.get("input").map(|v| if v.is_string() {
+                format!("string({} chars)", v.as_str().unwrap_or("").len())
+            } else {
+                format!("{:?}", v)
+            }),
             json.get("stop")
         );
         if let Some(completed_tool) = tool_acc.process_event(json) {
@@ -583,7 +614,7 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
         // Tool is still accumulating, no event to emit yet
         return None;
     }
-    
+
     // Usage event: {"usage": 1.5}
     if let Some(usage_val) = json.get("usage") {
         // Usage can be a number (credits) or an object with inputTokens/outputTokens
@@ -603,9 +634,15 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
                 is_last_thinking_chunk: false,
             });
         } else if usage_val.is_object() {
-            let input_tokens = usage_val.get("inputTokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let output_tokens = usage_val.get("outputTokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            
+            let input_tokens = usage_val
+                .get("inputTokens")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let output_tokens = usage_val
+                .get("outputTokens")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+
             return Some(KiroEvent {
                 event_type: "usage".to_string(),
                 content: None,
@@ -621,7 +658,7 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
             });
         }
     }
-    
+
     // Context usage event: {"contextUsagePercentage": 50.0}
     if let Some(ctx_usage) = json.get("contextUsagePercentage").and_then(|v| v.as_f64()) {
         return Some(KiroEvent {
@@ -635,7 +672,7 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
             is_last_thinking_chunk: false,
         });
     }
-    
+
     // Legacy format support: {"contentBlockDelta": {"delta": {"text": "Hello"}}}
     if let Some(content_block_delta) = json.get("contentBlockDelta") {
         if let Some(delta) = content_block_delta.get("delta") {
@@ -652,19 +689,24 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
                     is_last_thinking_chunk: false,
                 });
             }
-            
+
             // Tool use (legacy format - not streamed)
             if let Some(tool_use) = delta.get("toolUse") {
-                let tool_use_id = tool_use.get("toolUseId")
+                let tool_use_id = tool_use
+                    .get("toolUseId")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let name = tool_use.get("name")
+                let name = tool_use
+                    .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let input = tool_use.get("input").cloned().unwrap_or(Value::Object(Default::default()));
-                
+                let input = tool_use
+                    .get("input")
+                    .cloned()
+                    .unwrap_or(Value::Object(Default::default()));
+
                 return Some(KiroEvent {
                     event_type: "tool_use".to_string(),
                     content: None,
@@ -682,13 +724,19 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
             }
         }
     }
-    
+
     // Legacy usage metadata: {"metadata": {"usage": {...}}}
     if let Some(metadata) = json.get("metadata") {
         if let Some(usage) = metadata.get("usage") {
-            let input_tokens = usage.get("inputTokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            let output_tokens = usage.get("outputTokens").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-            
+            let input_tokens = usage
+                .get("inputTokens")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+            let output_tokens = usage
+                .get("outputTokens")
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32;
+
             return Some(KiroEvent {
                 event_type: "usage".to_string(),
                 content: None,
@@ -704,12 +752,12 @@ pub fn parse_kiro_event_with_accumulator(json: &Value, tool_acc: &mut ToolCallAc
             });
         }
     }
-    
+
     // Message stop
     if json.get("messageStop").is_some() {
         return None;
     }
-    
+
     None
 }
 
@@ -743,7 +791,7 @@ pub async fn parse_kiro_stream_with_thinking(
 ) -> Result<impl Stream<Item = Result<KiroEvent, ApiError>>, ApiError> {
     let mut byte_stream = response.bytes_stream();
     let mut parser = SseParser::new();
-    
+
     // Wait for first chunk with timeout
     let first_chunk = timeout(
         Duration::from_secs(first_token_timeout_secs),
@@ -751,10 +799,13 @@ pub async fn parse_kiro_stream_with_thinking(
     )
     .await
     .map_err(|_| {
-        warn!("[FirstTokenTimeout] Model did not respond within {}s", first_token_timeout_secs);
+        warn!(
+            "[FirstTokenTimeout] Model did not respond within {}s",
+            first_token_timeout_secs
+        );
         ApiError::Internal(anyhow::anyhow!("First token timeout"))
     })?;
-    
+
     let first_chunk = match first_chunk {
         Some(Ok(chunk)) => chunk,
         Some(Err(e)) => return Err(ApiError::Internal(anyhow::anyhow!("Stream error: {}", e))),
@@ -762,35 +813,37 @@ pub async fn parse_kiro_stream_with_thinking(
             return Ok(futures::stream::empty().boxed());
         }
     };
-    
+
     // Log raw chunk for debugging
     DEBUG_LOGGER.log_raw_chunk(first_chunk.clone()).await;
-    
+
     // Initialize thinking parser if enabled
     let thinking_parser = if enable_thinking_parser {
-        Some(std::sync::Arc::new(std::sync::Mutex::new(ThinkingParser::new())))
+        Some(std::sync::Arc::new(std::sync::Mutex::new(
+            ThinkingParser::new(),
+        )))
     } else {
         None
     };
-    
+
     // Tool accumulator for combining streamed tool input
     let tool_accumulator = std::sync::Arc::new(std::sync::Mutex::new(ToolCallAccumulator::new()));
-    
+
     // Process first chunk through thinking parser
     let mut events = Vec::new();
     let jsons = parser.feed(&first_chunk)?;
-    
+
     for json in jsons {
         let mut tool_acc = tool_accumulator.lock().unwrap();
         if let Some(event) = parse_kiro_event_with_accumulator(&json, &mut tool_acc) {
             drop(tool_acc); // Release lock before processing
-            // Process content events through thinking parser
+                            // Process content events through thinking parser
             if event.event_type == "content" {
                 if let Some(content) = &event.content {
                     if let Some(ref tp) = thinking_parser {
                         let mut tp_guard = tp.lock().unwrap();
                         let parse_result = tp_guard.feed(content);
-                        
+
                         // Yield thinking content if any
                         if let Some(thinking) = parse_result.thinking_content {
                             let processed = tp_guard.process_for_output(
@@ -811,7 +864,7 @@ pub async fn parse_kiro_stream_with_thinking(
                                 }));
                             }
                         }
-                        
+
                         // Yield regular content if any
                         if let Some(regular) = parse_result.regular_content {
                             events.push(Ok(KiroEvent {
@@ -836,137 +889,160 @@ pub async fn parse_kiro_stream_with_thinking(
             }
         }
     }
-    
+
     // Clone thinking parser and tool accumulator for use in remaining stream
     let thinking_parser_for_stream = thinking_parser.clone();
     let tool_accumulator_for_stream = tool_accumulator.clone();
-    
+
     // Wrap parser in Arc<Mutex<>> to share state across chunks
     let parser = std::sync::Arc::new(std::sync::Mutex::new(parser));
     let parser_for_stream = parser.clone();
-    
+
     // Create stream that yields first chunk events, then continues with remaining chunks
-    let remaining_stream = byte_stream.then(move |chunk_result| {
-        let parser = parser_for_stream.clone();
-        let tp = thinking_parser_for_stream.clone();
-        let tool_acc = tool_accumulator_for_stream.clone();
-        
-        async move {
-            match chunk_result {
-                Ok(chunk) => {
-                    // Log raw chunk for debugging
-                    DEBUG_LOGGER.log_raw_chunk(chunk.clone()).await;
-                    
-                    let mut events = Vec::new();
-                    let mut parser_guard = parser.lock().unwrap();
-                    match parser_guard.feed(&chunk) {
-                        Ok(jsons) => {
-                            drop(parser_guard); // Release parser lock before processing events
-                            for json in jsons {
-                                let mut tool_acc_guard = tool_acc.lock().unwrap();
-                                if let Some(event) = parse_kiro_event_with_accumulator(&json, &mut tool_acc_guard) {
-                                    drop(tool_acc_guard); // Release lock
-                                    // Process content events through thinking parser
-                                    if event.event_type == "content" {
-                                        if let Some(content) = &event.content {
-                                            if let Some(ref tp_arc) = tp {
-                                                let mut tp_guard = tp_arc.lock().unwrap();
-                                                let parse_result = tp_guard.feed(content);
-                                                
-                                                // Yield thinking content if any
-                                                if let Some(thinking) = parse_result.thinking_content {
-                                                    let processed = tp_guard.process_for_output(
-                                                        &thinking,
-                                                        parse_result.is_first_thinking_chunk,
-                                                        parse_result.is_last_thinking_chunk,
-                                                    );
-                                                    if let Some(processed_thinking) = processed {
+    let remaining_stream = byte_stream
+        .then(move |chunk_result| {
+            let parser = parser_for_stream.clone();
+            let tp = thinking_parser_for_stream.clone();
+            let tool_acc = tool_accumulator_for_stream.clone();
+
+            async move {
+                match chunk_result {
+                    Ok(chunk) => {
+                        // Log raw chunk for debugging
+                        DEBUG_LOGGER.log_raw_chunk(chunk.clone()).await;
+
+                        let mut events = Vec::new();
+                        let mut parser_guard = parser.lock().unwrap();
+                        match parser_guard.feed(&chunk) {
+                            Ok(jsons) => {
+                                drop(parser_guard); // Release parser lock before processing events
+                                for json in jsons {
+                                    let mut tool_acc_guard = tool_acc.lock().unwrap();
+                                    if let Some(event) = parse_kiro_event_with_accumulator(
+                                        &json,
+                                        &mut tool_acc_guard,
+                                    ) {
+                                        drop(tool_acc_guard); // Release lock
+                                                              // Process content events through thinking parser
+                                        if event.event_type == "content" {
+                                            if let Some(content) = &event.content {
+                                                if let Some(ref tp_arc) = tp {
+                                                    let mut tp_guard = tp_arc.lock().unwrap();
+                                                    let parse_result = tp_guard.feed(content);
+
+                                                    // Yield thinking content if any
+                                                    if let Some(thinking) =
+                                                        parse_result.thinking_content
+                                                    {
+                                                        let processed = tp_guard
+                                                            .process_for_output(
+                                                                &thinking,
+                                                                parse_result
+                                                                    .is_first_thinking_chunk,
+                                                                parse_result.is_last_thinking_chunk,
+                                                            );
+                                                        if let Some(processed_thinking) = processed
+                                                        {
+                                                            events.push(Ok(KiroEvent {
+                                                                event_type: "thinking".to_string(),
+                                                                content: None,
+                                                                thinking_content: Some(
+                                                                    processed_thinking,
+                                                                ),
+                                                                tool_use: None,
+                                                                usage: None,
+                                                                context_usage_percentage: None,
+                                                                is_first_thinking_chunk:
+                                                                    parse_result
+                                                                        .is_first_thinking_chunk,
+                                                                is_last_thinking_chunk:
+                                                                    parse_result
+                                                                        .is_last_thinking_chunk,
+                                                            }));
+                                                        }
+                                                    }
+
+                                                    // Yield regular content if any
+                                                    if let Some(regular) =
+                                                        parse_result.regular_content
+                                                    {
                                                         events.push(Ok(KiroEvent {
-                                                            event_type: "thinking".to_string(),
-                                                            content: None,
-                                                            thinking_content: Some(processed_thinking),
+                                                            event_type: "content".to_string(),
+                                                            content: Some(regular),
+                                                            thinking_content: None,
                                                             tool_use: None,
                                                             usage: None,
                                                             context_usage_percentage: None,
-                                                            is_first_thinking_chunk: parse_result.is_first_thinking_chunk,
-                                                            is_last_thinking_chunk: parse_result.is_last_thinking_chunk,
+                                                            is_first_thinking_chunk: false,
+                                                            is_last_thinking_chunk: false,
                                                         }));
                                                     }
+                                                } else {
+                                                    // No thinking parser - pass through as-is
+                                                    events.push(Ok(event));
                                                 }
-                                                
-                                                // Yield regular content if any
-                                                if let Some(regular) = parse_result.regular_content {
-                                                    events.push(Ok(KiroEvent {
-                                                        event_type: "content".to_string(),
-                                                        content: Some(regular),
-                                                        thinking_content: None,
-                                                        tool_use: None,
-                                                        usage: None,
-                                                        context_usage_percentage: None,
-                                                        is_first_thinking_chunk: false,
-                                                        is_last_thinking_chunk: false,
-                                                    }));
-                                                }
-                                            } else {
-                                                // No thinking parser - pass through as-is
-                                                events.push(Ok(event));
                                             }
+                                        } else {
+                                            // Non-content events pass through
+                                            events.push(Ok(event));
                                         }
-                                    } else {
-                                        // Non-content events pass through
-                                        events.push(Ok(event));
                                     }
                                 }
                             }
+                            Err(e) => events.push(Err(e)),
                         }
-                        Err(e) => events.push(Err(e)),
+                        futures::stream::iter(events)
                     }
-                    futures::stream::iter(events)
-                }
-                Err(e) => {
-                    futures::stream::iter(vec![Err(ApiError::Internal(anyhow::anyhow!("Stream error: {}", e)))])
+                    Err(e) => futures::stream::iter(vec![Err(ApiError::Internal(
+                        anyhow::anyhow!("Stream error: {}", e),
+                    ))]),
                 }
             }
-        }
-    })
-    .flatten();
-    
+        })
+        .flatten();
+
     // Clone tool accumulator for finalization stream
     let tool_accumulator_for_finalize = tool_accumulator.clone();
-    
+
     // Create finalization stream that emits any remaining tool at end of stream
-    let finalize_stream = futures::stream::unfold(Some(tool_accumulator_for_finalize), |state_opt| async move {
-        let tool_acc_arc = state_opt?;
-        let mut tool_acc = tool_acc_arc.lock().unwrap();
-        
-        // Finalize any remaining tool that didn't receive a stop event
-        if let Some(completed_tool) = tool_acc.finalize() {
-            tracing::debug!(
-                "Finalized remaining tool at stream end: {} with input keys: {:?}",
-                completed_tool.name,
-                completed_tool.input.as_object().map(|o| o.keys().collect::<Vec<_>>())
-            );
-            let event = KiroEvent {
-                event_type: "tool_use".to_string(),
-                content: None,
-                thinking_content: None,
-                tool_use: Some(completed_tool),
-                usage: None,
-                context_usage_percentage: None,
-                is_first_thinking_chunk: false,
-                is_last_thinking_chunk: false,
-            };
-            Some((Ok(event), None))
-        } else {
-            None
-        }
-    });
-    
+    let finalize_stream = futures::stream::unfold(
+        Some(tool_accumulator_for_finalize),
+        |state_opt| async move {
+            let tool_acc_arc = state_opt?;
+            let mut tool_acc = tool_acc_arc.lock().unwrap();
+
+            // Finalize any remaining tool that didn't receive a stop event
+            if let Some(completed_tool) = tool_acc.finalize() {
+                tracing::debug!(
+                    "Finalized remaining tool at stream end: {} with input keys: {:?}",
+                    completed_tool.name,
+                    completed_tool
+                        .input
+                        .as_object()
+                        .map(|o| o.keys().collect::<Vec<_>>())
+                );
+                let event = KiroEvent {
+                    event_type: "tool_use".to_string(),
+                    content: None,
+                    thinking_content: None,
+                    tool_use: Some(completed_tool),
+                    usage: None,
+                    context_usage_percentage: None,
+                    is_first_thinking_chunk: false,
+                    is_last_thinking_chunk: false,
+                };
+                Some((Ok(event), None))
+            } else {
+                None
+            }
+        },
+    );
+
     // Combine first chunk events with remaining stream, then finalization
     let combined = futures::stream::iter(events)
         .chain(remaining_stream)
         .chain(finalize_stream);
-    
+
     Ok(combined.boxed())
 }
 
@@ -982,41 +1058,42 @@ impl Clone for SseParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_sse_parser_basic() {
         let mut parser = SseParser::new();
-        
+
         // Use a pattern that matches EVENT_PATTERNS
         let chunk = b"{\"content\": \"Hello, world!\"}\n\n";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["content"], "Hello, world!");
     }
-    
+
     #[test]
     fn test_sse_parser_done_marker() {
         let mut parser = SseParser::new();
-        
+
         let chunk = b"data: [DONE]\n\n";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 0);
     }
-    
+
     #[test]
     fn test_sse_parser_aws_format() {
         let mut parser = SseParser::new();
-        
+
         // Use a pattern that matches EVENT_PATTERNS
-        let chunk = b":event-type: content\n:content-type: application/json\n{\"content\": \"Hello\"}\n\n";
+        let chunk =
+            b":event-type: content\n:content-type: application/json\n{\"content\": \"Hello\"}\n\n";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["content"], "Hello");
     }
-    
+
     #[test]
     fn test_parse_kiro_event_content() {
         let json = serde_json::json!({
@@ -1026,12 +1103,12 @@ mod tests {
                 }
             }
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "content");
         assert_eq!(event.content, Some("Hello, world!".to_string()));
     }
-    
+
     #[test]
     fn test_parse_kiro_event_tool_use() {
         let json = serde_json::json!({
@@ -1045,7 +1122,7 @@ mod tests {
                 }
             }
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "tool_use");
         assert!(event.tool_use.is_some());
@@ -1053,7 +1130,7 @@ mod tests {
         assert_eq!(tool_use.tool_use_id, "call_123");
         assert_eq!(tool_use.name, "get_weather");
     }
-    
+
     #[test]
     fn test_parse_kiro_event_usage() {
         let json = serde_json::json!({
@@ -1064,7 +1141,7 @@ mod tests {
                 }
             }
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "usage");
         assert!(event.usage.is_some());
@@ -1072,13 +1149,13 @@ mod tests {
         assert_eq!(usage.input_tokens, 100);
         assert_eq!(usage.output_tokens, 50);
     }
-    
+
     // ==================== Tool Call Accumulator Tests ====================
-    
+
     #[test]
     fn test_tool_call_accumulator_simple() {
         let mut acc = ToolCallAccumulator::new();
-        
+
         // Tool start
         let start = serde_json::json!({
             "name": "get_weather",
@@ -1086,30 +1163,30 @@ mod tests {
         });
         let result = acc.process_event(&start);
         assert!(result.is_none()); // Not complete yet
-        
+
         // Tool input
         let input = serde_json::json!({
             "input": "{\"location\": \"SF\"}"
         });
         let result = acc.process_event(&input);
         assert!(result.is_none()); // Not complete yet
-        
+
         // Tool stop
         let stop = serde_json::json!({
             "stop": true
         });
         let result = acc.process_event(&stop);
         assert!(result.is_some());
-        
+
         let tool = result.unwrap();
         assert_eq!(tool.name, "get_weather");
         assert_eq!(tool.tool_use_id, "call_123");
     }
-    
+
     #[test]
     fn test_tool_call_accumulator_with_input_in_start() {
         let mut acc = ToolCallAccumulator::new();
-        
+
         // Tool start with input
         let start = serde_json::json!({
             "name": "bash",
@@ -1118,23 +1195,23 @@ mod tests {
         });
         let result = acc.process_event(&start);
         assert!(result.is_none());
-        
+
         // Tool stop
         let stop = serde_json::json!({
             "stop": true
         });
         let result = acc.process_event(&stop);
         assert!(result.is_some());
-        
+
         let tool = result.unwrap();
         assert_eq!(tool.name, "bash");
         assert_eq!(tool.input["command"], "ls");
     }
-    
+
     #[test]
     fn test_tool_call_accumulator_continuation_same_id() {
         let mut acc = ToolCallAccumulator::new();
-        
+
         // First chunk with name and toolUseId
         let chunk1 = serde_json::json!({
             "name": "bash",
@@ -1142,7 +1219,7 @@ mod tests {
             "input": "{\"comm"
         });
         acc.process_event(&chunk1);
-        
+
         // Continuation with same toolUseId (Kiro sends name in every chunk)
         let chunk2 = serde_json::json!({
             "name": "bash",
@@ -1150,23 +1227,23 @@ mod tests {
             "input": "and\": \"ls -la\"}"
         });
         acc.process_event(&chunk2);
-        
+
         // Stop
         let stop = serde_json::json!({
             "stop": true
         });
         let result = acc.process_event(&stop);
         assert!(result.is_some());
-        
+
         let tool = result.unwrap();
         assert_eq!(tool.name, "bash");
         assert_eq!(tool.input["command"], "ls -la");
     }
-    
+
     #[test]
     fn test_tool_call_accumulator_finalize() {
         let mut acc = ToolCallAccumulator::new();
-        
+
         // Start a tool but don't stop it
         let start = serde_json::json!({
             "name": "test_tool",
@@ -1174,23 +1251,23 @@ mod tests {
             "input": "{\"key\": \"value\"}"
         });
         acc.process_event(&start);
-        
+
         // Finalize should complete the tool
         let result = acc.finalize();
         assert!(result.is_some());
-        
+
         let tool = result.unwrap();
         assert_eq!(tool.name, "test_tool");
     }
-    
+
     // ==================== Deduplicate Tool Calls Tests ====================
-    
+
     #[test]
     fn test_deduplicate_tool_calls_empty() {
         let result = deduplicate_tool_calls(vec![]);
         assert!(result.is_empty());
     }
-    
+
     #[test]
     fn test_deduplicate_tool_calls_by_id() {
         let tools = vec![
@@ -1205,13 +1282,13 @@ mod tests {
                 input: serde_json::json!({"key": "value"}),
             },
         ];
-        
+
         let result = deduplicate_tool_calls(tools);
         assert_eq!(result.len(), 1);
         // Should keep the one with more arguments
         assert_eq!(result[0].input["key"], "value");
     }
-    
+
     #[test]
     fn test_deduplicate_tool_calls_by_name_args() {
         let tools = vec![
@@ -1226,11 +1303,11 @@ mod tests {
                 input: serde_json::json!({"key": "value"}),
             },
         ];
-        
+
         let result = deduplicate_tool_calls(tools);
         assert_eq!(result.len(), 1);
     }
-    
+
     #[test]
     fn test_deduplicate_tool_calls_different_tools() {
         let tools = vec![
@@ -1245,98 +1322,98 @@ mod tests {
                 input: serde_json::json!({"key": "value2"}),
             },
         ];
-        
+
         let result = deduplicate_tool_calls(tools);
         assert_eq!(result.len(), 2);
     }
-    
+
     // ==================== SSE Parser Additional Tests ====================
-    
+
     #[test]
     fn test_sse_parser_multiple_events() {
         let mut parser = SseParser::new();
-        
+
         let chunk = b"{\"content\": \"Hello\"}{\"content\": \"World\"}";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 2);
         assert_eq!(events[0]["content"], "Hello");
         assert_eq!(events[1]["content"], "World");
     }
-    
+
     #[test]
     fn test_sse_parser_partial_json() {
         let mut parser = SseParser::new();
-        
+
         // First chunk - incomplete JSON
         let chunk1 = b"{\"content\": \"Hel";
         let events1 = parser.feed(chunk1).unwrap();
         assert_eq!(events1.len(), 0);
-        
+
         // Second chunk - completes the JSON
         let chunk2 = b"lo\"}";
         let events2 = parser.feed(chunk2).unwrap();
         assert_eq!(events2.len(), 1);
         assert_eq!(events2[0]["content"], "Hello");
     }
-    
+
     #[test]
     fn test_sse_parser_nested_json() {
         let mut parser = SseParser::new();
-        
+
         let chunk = b"{\"content\": \"{\\\"nested\\\": true}\"}";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["content"], "{\"nested\": true}");
     }
-    
+
     #[test]
     fn test_sse_parser_usage_event() {
         let mut parser = SseParser::new();
-        
+
         let chunk = b"{\"usage\": {\"inputTokens\": 100, \"outputTokens\": 50}}";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["usage"]["inputTokens"], 100);
     }
-    
+
     #[test]
     fn test_sse_parser_context_usage() {
         let mut parser = SseParser::new();
-        
+
         let chunk = b"{\"contextUsagePercentage\": 45.5}";
         let events = parser.feed(chunk).unwrap();
-        
+
         assert_eq!(events.len(), 1);
         assert_eq!(events[0]["contextUsagePercentage"], 45.5);
     }
-    
+
     // ==================== Parse Kiro Event Additional Tests ====================
-    
+
     #[test]
     fn test_parse_kiro_event_direct_content() {
         let json = serde_json::json!({
             "content": "Direct content"
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "content");
         assert_eq!(event.content, Some("Direct content".to_string()));
     }
-    
+
     #[test]
     fn test_parse_kiro_event_direct_usage_number() {
         let json = serde_json::json!({
             "usage": 1.5
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "usage");
         assert!(event.usage.is_some());
     }
-    
+
     #[test]
     fn test_parse_kiro_event_direct_usage_object() {
         let json = serde_json::json!({
@@ -1345,47 +1422,47 @@ mod tests {
                 "outputTokens": 100
             }
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "usage");
         let usage = event.usage.unwrap();
         assert_eq!(usage.input_tokens, 200);
         assert_eq!(usage.output_tokens, 100);
     }
-    
+
     #[test]
     fn test_parse_kiro_event_context_usage() {
         let json = serde_json::json!({
             "contextUsagePercentage": 75.0
         });
-        
+
         let event = parse_kiro_event(&json).unwrap();
         assert_eq!(event.event_type, "context_usage");
         assert_eq!(event.context_usage_percentage, Some(75.0));
     }
-    
+
     #[test]
     fn test_parse_kiro_event_followup_prompt_ignored() {
         let json = serde_json::json!({
             "followupPrompt": "Some prompt"
         });
-        
+
         let event = parse_kiro_event(&json);
         assert!(event.is_none());
     }
-    
+
     #[test]
     fn test_parse_kiro_event_message_stop_ignored() {
         let json = serde_json::json!({
             "messageStop": {}
         });
-        
+
         let event = parse_kiro_event(&json);
         assert!(event.is_none());
     }
-    
+
     // ==================== KiroEvent Tests ====================
-    
+
     #[test]
     fn test_kiro_event_default() {
         let event = KiroEvent {
@@ -1398,12 +1475,12 @@ mod tests {
             is_first_thinking_chunk: false,
             is_last_thinking_chunk: false,
         };
-        
+
         assert_eq!(event.event_type, "content");
         assert!(!event.is_first_thinking_chunk);
         assert!(!event.is_last_thinking_chunk);
     }
-    
+
     #[test]
     fn test_tool_use_serialization() {
         let tool_use = ToolUse {
@@ -1411,26 +1488,25 @@ mod tests {
             name: "test_tool".to_string(),
             input: serde_json::json!({"key": "value"}),
         };
-        
+
         let json = serde_json::to_string(&tool_use).unwrap();
         assert!(json.contains("call_123"));
         assert!(json.contains("test_tool"));
     }
-    
+
     #[test]
     fn test_usage_serialization() {
         let usage = Usage {
             input_tokens: 100,
             output_tokens: 50,
         };
-        
+
         let json = serde_json::to_string(&usage).unwrap();
         let parsed: Usage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.input_tokens, 100);
         assert_eq!(parsed.output_tokens, 50);
     }
 }
-
 
 // ==================================================================================================
 // OpenAI Streaming
@@ -1445,7 +1521,10 @@ use uuid::Uuid;
 
 /// Generates a unique completion ID in OpenAI format.
 fn generate_completion_id() -> String {
-    format!("chatcmpl-{}", Uuid::new_v4().simple().to_string()[..24].to_string())
+    format!(
+        "chatcmpl-{}",
+        Uuid::new_v4().simple().to_string()[..24].to_string()
+    )
 }
 
 /// Converts Kiro stream to OpenAI SSE format.
@@ -1460,56 +1539,60 @@ pub async fn stream_kiro_to_openai(
     let completion_id = generate_completion_id();
     let created_time = chrono::Utc::now().timestamp();
     let model = model.to_string();
-    
+
     // Parse Kiro stream and collect all events
     let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs).await?;
-    
+
     // Use scan to maintain state across stream items
     use std::sync::Arc;
     use std::sync::Mutex;
-    
+
     #[derive(Default)]
     struct StreamState {
         first_chunk: bool,
         tool_calls: Vec<ToolUse>,
         usage: Option<Usage>,
     }
-    
+
     let state = Arc::new(Mutex::new(StreamState {
         first_chunk: true,
         tool_calls: Vec::new(),
         usage: None,
     }));
-    
+
     let completion_id_clone = completion_id.clone();
     let model_clone = model.clone();
-    
+
     // Clone state for use in final stream
     let state_for_final = state.clone();
-    
+
     // Convert to OpenAI chunks
     let openai_stream = kiro_stream.filter_map(move |event_result| {
         let completion_id = completion_id_clone.clone();
         let model = model_clone.clone();
         let state = state.clone();
-        
+
         async move {
             match event_result {
                 Ok(event) => {
                     let mut state = state.lock().unwrap();
-                    
+
                     match event.event_type.as_str() {
                         "content" => {
                             if let Some(content) = event.content {
                                 let delta = ChatCompletionChunkDelta {
-                                    role: if state.first_chunk { Some("assistant".to_string()) } else { None },
+                                    role: if state.first_chunk {
+                                        Some("assistant".to_string())
+                                    } else {
+                                        None
+                                    },
                                     content: Some(content),
                                     tool_calls: None,
                                     reasoning_content: None,
                                 };
-                                
+
                                 state.first_chunk = false;
-                                
+
                                 let chunk = ChatCompletionChunk {
                                     id: completion_id,
                                     object: "chat.completion.chunk".to_string(),
@@ -1524,7 +1607,7 @@ pub async fn stream_kiro_to_openai(
                                     usage: None,
                                     system_fingerprint: None,
                                 };
-                                
+
                                 let json = serde_json::to_string(&chunk)
                                     .unwrap_or_else(|_| "{}".to_string());
                                 Some(Ok(format!("data: {}\n\n", json)))
@@ -1535,14 +1618,18 @@ pub async fn stream_kiro_to_openai(
                         "thinking" => {
                             if let Some(thinking) = event.thinking_content {
                                 let delta = ChatCompletionChunkDelta {
-                                    role: if state.first_chunk { Some("assistant".to_string()) } else { None },
+                                    role: if state.first_chunk {
+                                        Some("assistant".to_string())
+                                    } else {
+                                        None
+                                    },
                                     content: None,
                                     tool_calls: None,
                                     reasoning_content: Some(thinking),
                                 };
-                                
+
                                 state.first_chunk = false;
-                                
+
                                 let chunk = ChatCompletionChunk {
                                     id: completion_id,
                                     object: "chat.completion.chunk".to_string(),
@@ -1557,7 +1644,7 @@ pub async fn stream_kiro_to_openai(
                                     usage: None,
                                     system_fingerprint: None,
                                 };
-                                
+
                                 let json = serde_json::to_string(&chunk)
                                     .unwrap_or_else(|_| "{}".to_string());
                                 Some(Ok(format!("data: {}\n\n", json)))
@@ -1577,42 +1664,96 @@ pub async fn stream_kiro_to_openai(
                             }
                             None
                         }
-                        _ => None
+                        _ => None,
                     }
                 }
-                Err(e) => Some(Err(e))
+                Err(e) => Some(Err(e)),
             }
         }
     });
-    
+
     // Add final chunk with tool calls, usage, and [DONE]
     let completion_id_for_final = completion_id.clone();
     let model_for_final = model.clone();
-    let final_chunks_stream = futures::stream::unfold(Some((state_for_final, completion_id_for_final, model_for_final, created_time)), move |state_opt| async move {
-        let (state_arc, completion_id, model, created_time) = state_opt?;
-        let state = state_arc.lock().unwrap();
-        let mut final_chunks = Vec::new();
-        
-        // Deduplicate tool calls before sending
-        let deduped_tool_calls = deduplicate_tool_calls(state.tool_calls.clone());
-        
-        // Send tool calls if present
-        if !deduped_tool_calls.is_empty() {
-            let tool_call_deltas: Vec<ToolCallDelta> = deduped_tool_calls
-                .iter()
-                .enumerate()
-                .map(|(idx, tc)| ToolCallDelta {
-                    index: idx as i32,
-                    id: Some(tc.tool_use_id.clone()),
-                    tool_type: Some("function".to_string()),
-                    function: Some(FunctionCallDelta {
-                        name: Some(tc.name.clone()),
-                        arguments: Some(serde_json::to_string(&tc.input).unwrap_or_else(|_| "{}".to_string())),
-                    }),
+    let final_chunks_stream = futures::stream::unfold(
+        Some((
+            state_for_final,
+            completion_id_for_final,
+            model_for_final,
+            created_time,
+        )),
+        move |state_opt| async move {
+            let (state_arc, completion_id, model, created_time) = state_opt?;
+            let state = state_arc.lock().unwrap();
+            let mut final_chunks = Vec::new();
+
+            // Deduplicate tool calls before sending
+            let deduped_tool_calls = deduplicate_tool_calls(state.tool_calls.clone());
+
+            // Send tool calls if present
+            if !deduped_tool_calls.is_empty() {
+                let tool_call_deltas: Vec<ToolCallDelta> = deduped_tool_calls
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, tc)| ToolCallDelta {
+                        index: idx as i32,
+                        id: Some(tc.tool_use_id.clone()),
+                        tool_type: Some("function".to_string()),
+                        function: Some(FunctionCallDelta {
+                            name: Some(tc.name.clone()),
+                            arguments: Some(
+                                serde_json::to_string(&tc.input)
+                                    .unwrap_or_else(|_| "{}".to_string()),
+                            ),
+                        }),
+                    })
+                    .collect();
+
+                let tool_chunk = ChatCompletionChunk {
+                    id: completion_id.clone(),
+                    object: "chat.completion.chunk".to_string(),
+                    created: created_time,
+                    model: model.clone(),
+                    choices: vec![ChatCompletionChunkChoice {
+                        index: 0,
+                        delta: ChatCompletionChunkDelta {
+                            role: None,
+                            content: None,
+                            tool_calls: Some(tool_call_deltas),
+                            reasoning_content: None,
+                        },
+                        finish_reason: None,
+                        logprobs: None,
+                    }],
+                    usage: None,
+                    system_fingerprint: None,
+                };
+
+                let json = serde_json::to_string(&tool_chunk).unwrap_or_else(|_| "{}".to_string());
+                final_chunks.push(Ok(format!("data: {}\n\n", json)));
+            }
+
+            // Determine finish_reason
+            let finish_reason = if !deduped_tool_calls.is_empty() {
+                "tool_calls"
+            } else {
+                "stop"
+            };
+
+            // Calculate usage
+            let usage_obj = if let Some(ref u) = state.usage {
+                Some(ChatCompletionUsage {
+                    prompt_tokens: u.input_tokens,
+                    completion_tokens: u.output_tokens,
+                    total_tokens: u.input_tokens + u.output_tokens,
+                    credits_used: None,
                 })
-                .collect();
-            
-            let tool_chunk = ChatCompletionChunk {
+            } else {
+                None
+            };
+
+            // Final chunk with finish_reason and usage
+            let final_chunk = ChatCompletionChunk {
                 id: completion_id.clone(),
                 object: "chat.completion.chunk".to_string(),
                 created: created_time,
@@ -1622,82 +1763,35 @@ pub async fn stream_kiro_to_openai(
                     delta: ChatCompletionChunkDelta {
                         role: None,
                         content: None,
-                        tool_calls: Some(tool_call_deltas),
+                        tool_calls: None,
                         reasoning_content: None,
                     },
-                    finish_reason: None,
+                    finish_reason: Some(finish_reason.to_string()),
                     logprobs: None,
                 }],
-                usage: None,
+                usage: usage_obj,
                 system_fingerprint: None,
             };
-            
-            let json = serde_json::to_string(&tool_chunk)
-                .unwrap_or_else(|_| "{}".to_string());
+
+            let json = serde_json::to_string(&final_chunk).unwrap_or_else(|_| "{}".to_string());
             final_chunks.push(Ok(format!("data: {}\n\n", json)));
-        }
-        
-        // Determine finish_reason
-        let finish_reason = if !deduped_tool_calls.is_empty() {
-            "tool_calls"
-        } else {
-            "stop"
-        };
-        
-        // Calculate usage
-        let usage_obj = if let Some(ref u) = state.usage {
-            Some(ChatCompletionUsage {
-                prompt_tokens: u.input_tokens,
-                completion_tokens: u.output_tokens,
-                total_tokens: u.input_tokens + u.output_tokens,
-                credits_used: None,
-            })
-        } else {
-            None
-        };
-        
-        // Final chunk with finish_reason and usage
-        let final_chunk = ChatCompletionChunk {
-            id: completion_id.clone(),
-            object: "chat.completion.chunk".to_string(),
-            created: created_time,
-            model: model.clone(),
-            choices: vec![ChatCompletionChunkChoice {
-                index: 0,
-                delta: ChatCompletionChunkDelta {
-                    role: None,
-                    content: None,
-                    tool_calls: None,
-                    reasoning_content: None,
-                },
-                finish_reason: Some(finish_reason.to_string()),
-                logprobs: None,
-            }],
-            usage: usage_obj,
-            system_fingerprint: None,
-        };
-        
-        let json = serde_json::to_string(&final_chunk)
-            .unwrap_or_else(|_| "{}".to_string());
-        final_chunks.push(Ok(format!("data: {}\n\n", json)));
-        
-        // [DONE] marker
-        final_chunks.push(Ok("data: [DONE]\n\n".to_string()));
-        
-        Some((futures::stream::iter(final_chunks), None))
-    })
+
+            // [DONE] marker
+            final_chunks.push(Ok("data: [DONE]\n\n".to_string()));
+
+            Some((futures::stream::iter(final_chunks), None))
+        },
+    )
     .flatten();
-    
+
     let final_stream = openai_stream.chain(final_chunks_stream);
-    
+
     Ok(final_stream.boxed())
 }
-
 
 // ==================================================================================================
 // Anthropic Streaming
 // ==================================================================================================
-
 
 /// Formats data as Anthropic SSE event.
 ///
@@ -1717,7 +1811,10 @@ fn format_anthropic_sse_event(event_type: &str, data: &Value) -> String {
 
 /// Generates a unique message ID in Anthropic format.
 fn generate_anthropic_message_id() -> String {
-    format!("msg_{}", Uuid::new_v4().simple().to_string()[..24].to_string())
+    format!(
+        "msg_{}",
+        Uuid::new_v4().simple().to_string()[..24].to_string()
+    )
 }
 
 /// Converts Kiro stream to Anthropic SSE format.
@@ -1732,14 +1829,14 @@ pub async fn stream_kiro_to_anthropic(
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let message_id = generate_anthropic_message_id();
     let model = model.to_string();
-    
+
     // Parse Kiro stream
     let kiro_stream = parse_kiro_stream(response, first_token_timeout_secs).await?;
-    
+
     // Use state to track blocks
     use std::sync::Arc;
     use std::sync::Mutex;
-    
+
     #[derive(Default)]
     struct StreamState {
         text_block_started: bool,
@@ -1750,9 +1847,9 @@ pub async fn stream_kiro_to_anthropic(
         tool_calls: Vec<ToolUse>,
         usage: Option<Usage>,
     }
-    
+
     let state = Arc::new(Mutex::new(StreamState::default()));
-    
+
     // Send message_start event first
     let message_start = serde_json::json!({
         "type": "message_start",
@@ -1770,24 +1867,24 @@ pub async fn stream_kiro_to_anthropic(
             }
         }
     });
-    
+
     let start_event = format_anthropic_sse_event("message_start", &message_start);
-    
+
     let _model_clone = model.clone();
-    
+
     // Clone state for use in final stream
     let state_for_final = state.clone();
-    
+
     // Convert Kiro events to Anthropic events
     let anthropic_stream = kiro_stream.filter_map(move |event_result| {
         let _model = _model_clone.clone();
         let state = state.clone();
-        
+
         async move {
             match event_result {
                 Ok(event) => {
                     let mut state = state.lock().unwrap();
-                    
+
                     match event.event_type.as_str() {
                         "content" => {
                             if let Some(content) = event.content {
@@ -1796,7 +1893,7 @@ pub async fn stream_kiro_to_anthropic(
                                     state.text_block_index = state.current_block_index;
                                     state.current_block_index += 1;
                                     state.text_block_started = true;
-                                    
+
                                     let block_start = serde_json::json!({
                                         "type": "content_block_start",
                                         "index": state.text_block_index,
@@ -1805,9 +1902,12 @@ pub async fn stream_kiro_to_anthropic(
                                             "text": ""
                                         }
                                     });
-                                    
-                                    let start_event = format_anthropic_sse_event("content_block_start", &block_start);
-                                    
+
+                                    let start_event = format_anthropic_sse_event(
+                                        "content_block_start",
+                                        &block_start,
+                                    );
+
                                     // Send both start and delta
                                     let delta = serde_json::json!({
                                         "type": "content_block_delta",
@@ -1817,9 +1917,10 @@ pub async fn stream_kiro_to_anthropic(
                                             "text": content
                                         }
                                     });
-                                    
-                                    let delta_event = format_anthropic_sse_event("content_block_delta", &delta);
-                                    
+
+                                    let delta_event =
+                                        format_anthropic_sse_event("content_block_delta", &delta);
+
                                     return Some(Ok(format!("{}{}", start_event, delta_event)));
                                 } else {
                                     // Send delta only
@@ -1831,8 +1932,11 @@ pub async fn stream_kiro_to_anthropic(
                                             "text": content
                                         }
                                     });
-                                    
-                                    return Some(Ok(format_anthropic_sse_event("content_block_delta", &delta)));
+
+                                    return Some(Ok(format_anthropic_sse_event(
+                                        "content_block_delta",
+                                        &delta,
+                                    )));
                                 }
                             }
                             None
@@ -1844,7 +1948,7 @@ pub async fn stream_kiro_to_anthropic(
                                     state.thinking_block_index = state.current_block_index;
                                     state.current_block_index += 1;
                                     state.thinking_block_started = true;
-                                    
+
                                     let block_start = serde_json::json!({
                                         "type": "content_block_start",
                                         "index": state.thinking_block_index,
@@ -1853,9 +1957,12 @@ pub async fn stream_kiro_to_anthropic(
                                             "thinking": ""
                                         }
                                     });
-                                    
-                                    let start_event = format_anthropic_sse_event("content_block_start", &block_start);
-                                    
+
+                                    let start_event = format_anthropic_sse_event(
+                                        "content_block_start",
+                                        &block_start,
+                                    );
+
                                     // Send both start and delta
                                     let delta = serde_json::json!({
                                         "type": "content_block_delta",
@@ -1865,9 +1972,10 @@ pub async fn stream_kiro_to_anthropic(
                                             "thinking": thinking
                                         }
                                     });
-                                    
-                                    let delta_event = format_anthropic_sse_event("content_block_delta", &delta);
-                                    
+
+                                    let delta_event =
+                                        format_anthropic_sse_event("content_block_delta", &delta);
+
                                     return Some(Ok(format!("{}{}", start_event, delta_event)));
                                 } else {
                                     // Send delta only
@@ -1879,8 +1987,11 @@ pub async fn stream_kiro_to_anthropic(
                                             "thinking": thinking
                                         }
                                     });
-                                    
-                                    return Some(Ok(format_anthropic_sse_event("content_block_delta", &delta)));
+
+                                    return Some(Ok(format_anthropic_sse_event(
+                                        "content_block_delta",
+                                        &delta,
+                                    )));
                                 }
                             }
                             None
@@ -1903,20 +2014,20 @@ pub async fn stream_kiro_to_anthropic(
                             }
                             None
                         }
-                        _ => None
+                        _ => None,
                     }
                 }
-                Err(e) => Some(Err(e))
+                Err(e) => Some(Err(e)),
             }
         }
     });
-    
+
     // Add final events
     let final_events_stream = futures::stream::unfold(Some(state_for_final), move |state_opt| async move {
         let state_arc = state_opt?;
         let state = state_arc.lock().unwrap();
         let mut final_events = Vec::new();
-        
+
         // Close thinking block if open
         if state.thinking_block_started {
             let block_stop = serde_json::json!({
@@ -1925,7 +2036,7 @@ pub async fn stream_kiro_to_anthropic(
             });
             final_events.push(Ok(format_anthropic_sse_event("content_block_stop", &block_stop)));
         }
-        
+
         // Close text block if open
         if state.text_block_started {
             let block_stop = serde_json::json!({
@@ -1934,10 +2045,10 @@ pub async fn stream_kiro_to_anthropic(
             });
             final_events.push(Ok(format_anthropic_sse_event("content_block_stop", &block_stop)));
         }
-        
+
         // Deduplicate tool calls before sending
         let deduped_tool_calls = deduplicate_tool_calls(state.tool_calls.clone());
-        
+
         // Log tool calls for debugging
         if !deduped_tool_calls.is_empty() {
             tracing::info!(
@@ -1947,13 +2058,13 @@ pub async fn stream_kiro_to_anthropic(
                 deduped_tool_calls.iter().map(|t| format!("{}:{}", t.name, &t.tool_use_id)).collect::<Vec<_>>()
             );
         }
-        
+
         // Send tool use blocks if present
         let mut tool_block_index = state.current_block_index;
         for tool_use in &deduped_tool_calls {
             let tool_index = tool_block_index;
             tool_block_index += 1;  // Increment for each tool
-            
+
             let block_start = serde_json::json!({
                 "type": "content_block_start",
                 "index": tool_index,
@@ -1965,7 +2076,7 @@ pub async fn stream_kiro_to_anthropic(
                 }
             });
             final_events.push(Ok(format_anthropic_sse_event("content_block_start", &block_start)));
-            
+
             let delta = serde_json::json!({
                 "type": "content_block_delta",
                 "index": tool_index,
@@ -1975,28 +2086,28 @@ pub async fn stream_kiro_to_anthropic(
                 }
             });
             final_events.push(Ok(format_anthropic_sse_event("content_block_delta", &delta)));
-            
+
             let block_stop = serde_json::json!({
                 "type": "content_block_stop",
                 "index": tool_index
             });
             final_events.push(Ok(format_anthropic_sse_event("content_block_stop", &block_stop)));
         }
-        
+
         // Determine stop_reason
         let stop_reason = if !deduped_tool_calls.is_empty() {
             "tool_use"
         } else {
             "end_turn"
         };
-        
+
         // Calculate usage
         let output_tokens = if let Some(ref u) = state.usage {
             u.output_tokens
         } else {
             0
         };
-        
+
         // Send message_delta with stop_reason
         let message_delta = serde_json::json!({
             "type": "message_delta",
@@ -2009,23 +2120,22 @@ pub async fn stream_kiro_to_anthropic(
             }
         });
         final_events.push(Ok(format_anthropic_sse_event("message_delta", &message_delta)));
-        
+
         // Send message_stop
         let message_stop = serde_json::json!({
             "type": "message_stop"
         });
         final_events.push(Ok(format_anthropic_sse_event("message_stop", &message_stop)));
-        
+
         Some((futures::stream::iter(final_events), None))
     })
     .flatten();
-    
+
     let final_stream = anthropic_stream.chain(final_events_stream);
-    
+
     // Prepend message_start event
-    let complete_stream = futures::stream::once(async move { Ok(start_event) })
-        .chain(final_stream);
-    
+    let complete_stream = futures::stream::once(async move { Ok(start_event) }).chain(final_stream);
+
     Ok(complete_stream.boxed())
 }
 
@@ -2061,31 +2171,29 @@ pub async fn collect_openai_response(
 
     while let Some(event_result) = kiro_stream.next().await {
         match event_result {
-            Ok(event) => {
-                match event.event_type.as_str() {
-                    "content" => {
-                        if let Some(content) = event.content {
-                            full_content.push_str(&content);
-                        }
+            Ok(event) => match event.event_type.as_str() {
+                "content" => {
+                    if let Some(content) = event.content {
+                        full_content.push_str(&content);
                     }
-                    "thinking" => {
-                        if let Some(thinking) = event.thinking_content {
-                            full_reasoning_content.push_str(&thinking);
-                        }
-                    }
-                    "tool_use" => {
-                        if let Some(tool_use) = event.tool_use {
-                            tool_calls.push(tool_use);
-                        }
-                    }
-                    "usage" => {
-                        if let Some(u) = event.usage {
-                            usage = Some(u);
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                "thinking" => {
+                    if let Some(thinking) = event.thinking_content {
+                        full_reasoning_content.push_str(&thinking);
+                    }
+                }
+                "tool_use" => {
+                    if let Some(tool_use) = event.tool_use {
+                        tool_calls.push(tool_use);
+                    }
+                }
+                "usage" => {
+                    if let Some(u) = event.usage {
+                        usage = Some(u);
+                    }
+                }
+                _ => {}
+            },
             Err(e) => {
                 tracing::warn!("Error in stream: {:?}", e);
             }
@@ -2186,31 +2294,29 @@ pub async fn collect_anthropic_response(
 
     while let Some(event_result) = kiro_stream.next().await {
         match event_result {
-            Ok(event) => {
-                match event.event_type.as_str() {
-                    "content" => {
-                        if let Some(content) = event.content {
-                            full_content.push_str(&content);
-                        }
+            Ok(event) => match event.event_type.as_str() {
+                "content" => {
+                    if let Some(content) = event.content {
+                        full_content.push_str(&content);
                     }
-                    "thinking" => {
-                        if let Some(thinking) = event.thinking_content {
-                            full_thinking_content.push_str(&thinking);
-                        }
-                    }
-                    "tool_use" => {
-                        if let Some(tool_use) = event.tool_use {
-                            tool_calls.push(tool_use);
-                        }
-                    }
-                    "usage" => {
-                        if let Some(u) = event.usage {
-                            usage = Some(u);
-                        }
-                    }
-                    _ => {}
                 }
-            }
+                "thinking" => {
+                    if let Some(thinking) = event.thinking_content {
+                        full_thinking_content.push_str(&thinking);
+                    }
+                }
+                "tool_use" => {
+                    if let Some(tool_use) = event.tool_use {
+                        tool_calls.push(tool_use);
+                    }
+                }
+                "usage" => {
+                    if let Some(u) = event.usage {
+                        usage = Some(u);
+                    }
+                }
+                _ => {}
+            },
             Err(e) => {
                 tracing::warn!("Error in stream: {:?}", e);
             }

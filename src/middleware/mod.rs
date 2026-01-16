@@ -3,14 +3,8 @@
 
 pub mod debug;
 
-use axum::{
-    extract::State,
-    http::Request,
-    middleware::Next,
-    response::Response,
-    body::Body,
-};
-use tower_http::cors::{CorsLayer, Any};
+use axum::{body::Body, extract::State, http::Request, middleware::Next, response::Response};
+use tower_http::cors::{Any, CorsLayer};
 
 use crate::error::ApiError;
 use crate::routes::AppState;
@@ -22,7 +16,7 @@ pub use debug::DEBUG_LOGGER;
 ///
 /// Verifies the API key in the Authorization header or x-api-key header.
 /// Expects format: "Bearer {PROXY_API_KEY}" or just the key in x-api-key.
-/// 
+///
 /// Requirements:
 /// - 16.1: Extract Authorization header
 /// - 16.2: Extract x-api-key header (if Authorization not present)
@@ -47,7 +41,7 @@ pub async fn auth_middleware(
             }
         }
     }
-    
+
     // Extract x-api-key header (Requirement 16.2)
     if let Some(api_key_header) = request.headers().get("x-api-key") {
         if let Ok(key_str) = api_key_header.to_str() {
@@ -60,7 +54,7 @@ pub async fn auth_middleware(
             }
         }
     }
-    
+
     // Return 401 on failure (Requirement 16.4)
     let path = request.uri().path();
     let method = request.method();
@@ -71,14 +65,16 @@ pub async fn auth_middleware(
         method,
         path
     );
-    Err(ApiError::AuthError("Invalid or missing API Key".to_string()))
+    Err(ApiError::AuthError(
+        "Invalid or missing API Key".to_string(),
+    ))
 }
 
 /// Create CORS middleware layer
 ///
 /// Configures CORS to allow all origins, methods, and headers.
 /// Handles OPTIONS preflight requests automatically.
-/// 
+///
 /// Requirements:
 /// - 17.1: Allow all origins
 /// - 17.2: Allow all methods
@@ -98,36 +94,28 @@ pub fn cors_layer() -> CorsLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        auth::AuthManager, cache::ModelCache, config::Config, http_client::KiroHttpClient,
+        resolver::ModelResolver,
+    };
     use axum::{
         body::Body,
         http::{Request, StatusCode},
-        Router,
         routing::get,
-    };
-    use tower::util::ServiceExt;
-    use std::sync::Arc;
-    use crate::{
-        cache::ModelCache,
-        auth::AuthManager,
-        http_client::KiroHttpClient,
-        resolver::ModelResolver,
-        config::Config,
+        Router,
     };
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use tower::util::ServiceExt;
 
     fn create_test_state() -> AppState {
         let cache = ModelCache::new(3600);
         let auth_manager = Arc::new(
-            AuthManager::new_for_testing(
-                "test-token".to_string(),
-                "us-east-1".to_string(),
-                300,
-            )
-            .unwrap(),
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
         );
-        let http_client = Arc::new(
-            KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap()
-        );
+        let http_client =
+            Arc::new(KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap());
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
         let config = Arc::new(Config {
             server_host: "0.0.0.0".to_string(),
@@ -178,14 +166,14 @@ mod tests {
     async fn test_auth_middleware_with_valid_bearer_token() {
         let state = create_test_state();
         let app = create_test_app(state);
-        
+
         // Create request with valid Bearer token
         let request = Request::builder()
             .uri("/test")
             .header("authorization", "Bearer test-key-123")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -194,14 +182,14 @@ mod tests {
     async fn test_auth_middleware_with_valid_x_api_key() {
         let state = create_test_state();
         let app = create_test_app(state);
-        
+
         // Create request with valid x-api-key
         let request = Request::builder()
             .uri("/test")
             .header("x-api-key", "test-key-123")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
     }
@@ -210,14 +198,14 @@ mod tests {
     async fn test_auth_middleware_with_invalid_bearer_token() {
         let state = create_test_state();
         let app = create_test_app(state);
-        
+
         // Create request with invalid Bearer token
         let request = Request::builder()
             .uri("/test")
             .header("authorization", "Bearer wrong-key")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
@@ -226,14 +214,14 @@ mod tests {
     async fn test_auth_middleware_with_invalid_x_api_key() {
         let state = create_test_state();
         let app = create_test_app(state);
-        
+
         // Create request with invalid x-api-key
         let request = Request::builder()
             .uri("/test")
             .header("x-api-key", "wrong-key")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
@@ -242,13 +230,10 @@ mod tests {
     async fn test_auth_middleware_with_missing_auth() {
         let state = create_test_state();
         let app = create_test_app(state);
-        
+
         // Create request without any auth headers
-        let request = Request::builder()
-            .uri("/test")
-            .body(Body::empty())
-            .unwrap();
-        
+        let request = Request::builder().uri("/test").body(Body::empty()).unwrap();
+
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
@@ -257,20 +242,20 @@ mod tests {
     async fn test_auth_middleware_bearer_without_prefix() {
         let state = create_test_state();
         let app = create_test_app(state);
-        
+
         // Create request with token but without "Bearer " prefix
         let request = Request::builder()
             .uri("/test")
             .header("authorization", "test-key-123")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     // CORS middleware tests
-    
+
     #[tokio::test]
     async fn test_cors_layer_allows_all_origins() {
         let state = create_test_state();
@@ -278,19 +263,24 @@ mod tests {
             .route("/test", get(test_handler))
             .layer(cors_layer())
             .with_state(state);
-        
+
         // Create request with Origin header
         let request = Request::builder()
             .uri("/test")
             .header("origin", "https://example.com")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
-        
+
         // Check that CORS headers are present
-        assert!(response.headers().contains_key("access-control-allow-origin"));
-        let allow_origin = response.headers().get("access-control-allow-origin").unwrap();
+        assert!(response
+            .headers()
+            .contains_key("access-control-allow-origin"));
+        let allow_origin = response
+            .headers()
+            .get("access-control-allow-origin")
+            .unwrap();
         assert_eq!(allow_origin, "*");
     }
 
@@ -301,7 +291,7 @@ mod tests {
             .route("/test", get(test_handler))
             .layer(cors_layer())
             .with_state(state);
-        
+
         // Create OPTIONS preflight request
         let request = Request::builder()
             .method("OPTIONS")
@@ -311,16 +301,22 @@ mod tests {
             .header("access-control-request-headers", "content-type")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
-        
+
         // Check that preflight response has correct status
         assert_eq!(response.status(), StatusCode::OK);
-        
+
         // Check CORS headers
-        assert!(response.headers().contains_key("access-control-allow-origin"));
-        assert!(response.headers().contains_key("access-control-allow-methods"));
-        assert!(response.headers().contains_key("access-control-allow-headers"));
+        assert!(response
+            .headers()
+            .contains_key("access-control-allow-origin"));
+        assert!(response
+            .headers()
+            .contains_key("access-control-allow-methods"));
+        assert!(response
+            .headers()
+            .contains_key("access-control-allow-headers"));
     }
 
     #[tokio::test]
@@ -330,7 +326,7 @@ mod tests {
             .route("/test", get(test_handler))
             .layer(cors_layer())
             .with_state(state);
-        
+
         // Create OPTIONS request asking for POST method
         let request = Request::builder()
             .method("OPTIONS")
@@ -339,14 +335,19 @@ mod tests {
             .header("access-control-request-method", "POST")
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
-        
+
         // Check that all methods are allowed
-        assert!(response.headers().contains_key("access-control-allow-methods"));
-        let allow_methods = response.headers().get("access-control-allow-methods").unwrap();
+        assert!(response
+            .headers()
+            .contains_key("access-control-allow-methods"));
+        let allow_methods = response
+            .headers()
+            .get("access-control-allow-methods")
+            .unwrap();
         let methods_str = allow_methods.to_str().unwrap();
-        
+
         // tower-http returns "*" for Any
         assert_eq!(methods_str, "*");
     }
@@ -358,24 +359,32 @@ mod tests {
             .route("/test", get(test_handler))
             .layer(cors_layer())
             .with_state(state);
-        
+
         // Create OPTIONS request asking for custom headers
         let request = Request::builder()
             .method("OPTIONS")
             .uri("/test")
             .header("origin", "https://example.com")
             .header("access-control-request-method", "POST")
-            .header("access-control-request-headers", "x-custom-header, authorization")
+            .header(
+                "access-control-request-headers",
+                "x-custom-header, authorization",
+            )
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(request).await.unwrap();
-        
+
         // Check that all headers are allowed
-        assert!(response.headers().contains_key("access-control-allow-headers"));
-        let allow_headers = response.headers().get("access-control-allow-headers").unwrap();
+        assert!(response
+            .headers()
+            .contains_key("access-control-allow-headers"));
+        let allow_headers = response
+            .headers()
+            .get("access-control-allow-headers")
+            .unwrap();
         let headers_str = allow_headers.to_str().unwrap();
-        
+
         // tower-http returns "*" for Any
         assert_eq!(headers_str, "*");
     }
@@ -387,26 +396,31 @@ mod tests {
             .route("/test", get(test_handler))
             .layer(cors_layer())
             .with_state(state);
-        
+
         // Test with different origins
         let origins = vec![
             "https://example.com",
             "http://localhost:3000",
             "https://app.example.org",
         ];
-        
+
         for origin in origins {
             let request = Request::builder()
                 .uri("/test")
                 .header("origin", origin)
                 .body(Body::empty())
                 .unwrap();
-            
+
             let response = app.clone().oneshot(request).await.unwrap();
-            
+
             // All origins should be allowed
-            assert!(response.headers().contains_key("access-control-allow-origin"));
-            let allow_origin = response.headers().get("access-control-allow-origin").unwrap();
+            assert!(response
+                .headers()
+                .contains_key("access-control-allow-origin"));
+            let allow_origin = response
+                .headers()
+                .get("access-control-allow-origin")
+                .unwrap();
             assert_eq!(allow_origin, "*");
         }
     }

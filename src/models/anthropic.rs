@@ -40,13 +40,8 @@ pub enum ContentBlock {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageSource {
-    Base64 {
-        media_type: String,
-        data: String,
-    },
-    Url {
-        url: String,
-    },
+    Base64 { media_type: String, data: String },
+    Url { url: String },
 }
 
 // ==================================================================================================
@@ -97,19 +92,19 @@ pub struct AnthropicMessagesRequest {
     pub model: String,
     pub messages: Vec<AnthropicMessage>,
     pub max_tokens: i32,
-    
+
     // Optional parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<serde_json::Value>,
     #[serde(default)]
     pub stream: bool,
-    
+
     // Tools
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<serde_json::Value>,
-    
+
     // Sampling parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -117,7 +112,7 @@ pub struct AnthropicMessagesRequest {
     pub top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_k: Option<i32>,
-    
+
     // Other parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
@@ -151,7 +146,12 @@ pub struct AnthropicMessagesResponse {
 }
 
 impl AnthropicMessagesResponse {
-    pub fn new(id: String, model: String, content: Vec<ContentBlock>, usage: AnthropicUsage) -> Self {
+    pub fn new(
+        id: String,
+        model: String,
+        content: Vec<ContentBlock>,
+        usage: AnthropicUsage,
+    ) -> Self {
         Self {
             id,
             response_type: "message".to_string(),
@@ -197,15 +197,9 @@ pub enum StreamEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Delta {
-    TextDelta {
-        text: String,
-    },
-    ThinkingDelta {
-        thinking: String,
-    },
-    InputJsonDelta {
-        partial_json: String,
-    },
+    TextDelta { text: String },
+    ThinkingDelta { thinking: String },
+    InputJsonDelta { partial_json: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

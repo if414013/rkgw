@@ -2,33 +2,32 @@
 // Endpoint handlers for health, OpenAI, and Anthropic APIs
 
 use axum::{
-    routing::{get, post},
-    Router,
-    Json,
-    extract::State,
-    response::{Response, IntoResponse},
-    middleware::{self as axum_middleware},
     body::Body,
+    extract::State,
+    middleware::{self as axum_middleware},
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Json, Router,
 };
 use bytes::Bytes;
+use chrono::Utc;
 use futures::stream::StreamExt;
 use serde_json::{json, Value};
-use chrono::Utc;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::auth::AuthManager;
 use crate::cache::ModelCache;
 use crate::config::Config;
-use crate::models::openai::{OpenAIModel, ModelList, ChatCompletionRequest};
-use crate::models::anthropic::AnthropicMessagesRequest;
-use crate::error::ApiError;
-use crate::auth::AuthManager;
-use crate::http_client::KiroHttpClient;
-use crate::resolver::ModelResolver;
-use crate::converters::openai_to_kiro::build_kiro_payload;
 use crate::converters::anthropic_to_kiro::build_kiro_payload as build_kiro_payload_anthropic;
+use crate::converters::openai_to_kiro::build_kiro_payload;
+use crate::error::ApiError;
+use crate::http_client::KiroHttpClient;
 use crate::middleware;
 use crate::middleware::DEBUG_LOGGER;
+use crate::models::anthropic::AnthropicMessagesRequest;
+use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
+use crate::resolver::ModelResolver;
 use crate::tokenizer::count_anthropic_message_tokens;
 
 /// Application version from Cargo.toml
@@ -76,7 +75,7 @@ pub fn anthropic_routes(state: AppState) -> Router {
 }
 
 /// GET / - Simple health check
-/// 
+///
 /// Returns basic status and version information.
 /// This endpoint does not require authentication (for load balancers).
 async fn root_handler() -> Json<Value> {
@@ -88,7 +87,7 @@ async fn root_handler() -> Json<Value> {
 }
 
 /// GET /health - Detailed health check
-/// 
+///
 /// Returns detailed health information including timestamp.
 /// This endpoint does not require authentication (for load balancers).
 async fn health_handler() -> Json<Value> {
@@ -103,14 +102,12 @@ async fn health_handler() -> Json<Value> {
 ///
 /// Returns a list of available models in OpenAI format.
 /// Models are loaded from the cache (populated at startup).
-async fn get_models_handler(
-    State(state): State<AppState>,
-) -> Result<Json<ModelList>, ApiError> {
+async fn get_models_handler(State(state): State<AppState>) -> Result<Json<ModelList>, ApiError> {
     tracing::info!("Request to /v1/models");
-    
+
     // Get all model IDs from cache
     let model_ids = state.model_cache.get_all_model_ids();
-    
+
     // Build OpenAI-compatible model list
     let models: Vec<OpenAIModel> = model_ids
         .into_iter()
@@ -120,7 +117,7 @@ async fn get_models_handler(
             model
         })
         .collect();
-    
+
     Ok(Json(ModelList::new(models)))
 }
 
@@ -141,13 +138,15 @@ async fn chat_completions_handler(
 
     // Validate request
     if request.messages.is_empty() {
-        return Err(ApiError::ValidationError("messages cannot be empty".to_string()));
+        return Err(ApiError::ValidationError(
+            "messages cannot be empty".to_string(),
+        ));
     }
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
-    
+
     tracing::debug!(
         "Model resolution: {} -> {} (source: {}, verified: {})",
         request.model,
@@ -158,39 +157,53 @@ async fn chat_completions_handler(
 
     // Generate conversation ID
     let conversation_id = Uuid::new_v4().to_string();
-    
+
     // Get profile ARN
-    let profile_arn = state.auth_manager.get_profile_arn().await.unwrap_or_default();
+    let profile_arn = state
+        .auth_manager
+        .get_profile_arn()
+        .await
+        .unwrap_or_default();
 
     // Convert OpenAI request to Kiro format
-    let kiro_payload_result = build_kiro_payload(
-        &request,
-        &conversation_id,
-        &profile_arn,
-        &state.config,
-    ).map_err(|e| ApiError::ValidationError(e))?;
+    let kiro_payload_result =
+        build_kiro_payload(&request, &conversation_id, &profile_arn, &state.config)
+            .map_err(|e| ApiError::ValidationError(e))?;
 
     let kiro_payload = kiro_payload_result.payload;
 
-    tracing::debug!("Kiro payload: {}", serde_json::to_string_pretty(&kiro_payload).unwrap_or_default());
+    tracing::debug!(
+        "Kiro payload: {}",
+        serde_json::to_string_pretty(&kiro_payload).unwrap_or_default()
+    );
 
     // Log Kiro request body for debugging
     if let Ok(kiro_body_json) = serde_json::to_vec_pretty(&kiro_payload) {
-        DEBUG_LOGGER.log_kiro_request_body(Bytes::from(kiro_body_json)).await;
+        DEBUG_LOGGER
+            .log_kiro_request_body(Bytes::from(kiro_body_json))
+            .await;
     }
 
     // Get access token
-    let access_token = state.auth_manager.get_access_token().await
+    let access_token = state
+        .auth_manager
+        .get_access_token()
+        .await
         .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
 
     // Get region
     let region = state.auth_manager.get_region().await;
 
     // Build Kiro API URL - use /v1/chat/completions endpoint
-    let kiro_api_url = format!("https://codewhisperer.{}.amazonaws.com/generateAssistantResponse", region);
+    let kiro_api_url = format!(
+        "https://codewhisperer.{}.amazonaws.com/generateAssistantResponse",
+        region
+    );
 
     // Build request
-    let req = state.http_client.client()
+    let req = state
+        .http_client
+        .client()
         .post(&kiro_api_url)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Content-Type", "application/json")
@@ -205,18 +218,20 @@ async fn chat_completions_handler(
     if request.stream {
         // Streaming response
         tracing::debug!("Handling streaming response");
-        
+
         // Use proper streaming conversion from streaming module
         let openai_stream = crate::streaming::stream_kiro_to_openai(
             response,
             &request.model,
             15, // first_token_timeout_secs
-        ).await?;
+        )
+        .await?;
 
         // Convert Result<String, ApiError> stream to bytes stream for SSE
         use bytes::Bytes;
         let byte_stream = openai_stream.map(|result| {
-            result.map(|s| Bytes::from(s))
+            result
+                .map(|s| Bytes::from(s))
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
         });
 
@@ -244,7 +259,8 @@ async fn chat_completions_handler(
             response,
             &request.model,
             first_token_timeout,
-        ).await?;
+        )
+        .await?;
 
         // Discard debug buffers on success
         DEBUG_LOGGER.discard_buffers().await;
@@ -273,24 +289,28 @@ async fn anthropic_messages_handler(
     let anthropic_version = headers
         .get("anthropic-version")
         .and_then(|v| v.to_str().ok());
-    
+
     if let Some(version) = anthropic_version {
         tracing::debug!("anthropic-version: {}", version);
     }
 
     // Validate request
     if request.messages.is_empty() {
-        return Err(ApiError::ValidationError("messages cannot be empty".to_string()));
+        return Err(ApiError::ValidationError(
+            "messages cannot be empty".to_string(),
+        ));
     }
 
     if request.max_tokens <= 0 {
-        return Err(ApiError::ValidationError("max_tokens must be positive".to_string()));
+        return Err(ApiError::ValidationError(
+            "max_tokens must be positive".to_string(),
+        ));
     }
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
-    
+
     tracing::debug!(
         "Model resolution: {} -> {} (source: {}, verified: {})",
         request.model,
@@ -301,39 +321,53 @@ async fn anthropic_messages_handler(
 
     // Generate conversation ID
     let conversation_id = Uuid::new_v4().to_string();
-    
+
     // Get profile ARN
-    let profile_arn = state.auth_manager.get_profile_arn().await.unwrap_or_default();
+    let profile_arn = state
+        .auth_manager
+        .get_profile_arn()
+        .await
+        .unwrap_or_default();
 
     // Convert Anthropic request to Kiro format
-    let kiro_payload_result = build_kiro_payload_anthropic(
-        &request,
-        &conversation_id,
-        &profile_arn,
-        &state.config,
-    ).map_err(|e| ApiError::ValidationError(e))?;
+    let kiro_payload_result =
+        build_kiro_payload_anthropic(&request, &conversation_id, &profile_arn, &state.config)
+            .map_err(|e| ApiError::ValidationError(e))?;
 
     let kiro_payload = kiro_payload_result.payload;
 
-    tracing::debug!("Kiro payload: {}", serde_json::to_string_pretty(&kiro_payload).unwrap_or_default());
+    tracing::debug!(
+        "Kiro payload: {}",
+        serde_json::to_string_pretty(&kiro_payload).unwrap_or_default()
+    );
 
     // Log Kiro request body for debugging
     if let Ok(kiro_body_json) = serde_json::to_vec_pretty(&kiro_payload) {
-        DEBUG_LOGGER.log_kiro_request_body(Bytes::from(kiro_body_json)).await;
+        DEBUG_LOGGER
+            .log_kiro_request_body(Bytes::from(kiro_body_json))
+            .await;
     }
 
     // Get access token
-    let access_token = state.auth_manager.get_access_token().await
+    let access_token = state
+        .auth_manager
+        .get_access_token()
+        .await
         .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
 
     // Get region
     let region = state.auth_manager.get_region().await;
 
     // Build Kiro API URL - use /v1/messages endpoint
-    let kiro_api_url = format!("https://codewhisperer.{}.amazonaws.com/generateAssistantResponse", region);
+    let kiro_api_url = format!(
+        "https://codewhisperer.{}.amazonaws.com/generateAssistantResponse",
+        region
+    );
 
     // Build request
-    let req = state.http_client.client()
+    let req = state
+        .http_client
+        .client()
         .post(&kiro_api_url)
         .header("Authorization", format!("Bearer {}", access_token))
         .header("Content-Type", "application/json")
@@ -363,12 +397,14 @@ async fn anthropic_messages_handler(
             &request.model,
             first_token_timeout,
             input_tokens,
-        ).await?;
+        )
+        .await?;
 
         // Convert to raw SSE response (stream already contains properly formatted SSE events)
         // Don't use Axum's Sse wrapper as it would double-wrap the events
         let byte_stream = anthropic_stream.map(|result| {
-            result.map(|s| Bytes::from(s))
+            result
+                .map(|s| Bytes::from(s))
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
         });
 
@@ -396,7 +432,8 @@ async fn anthropic_messages_handler(
             &request.model,
             first_token_timeout,
             input_tokens,
-        ).await?;
+        )
+        .await?;
 
         // Discard debug buffers on success
         DEBUG_LOGGER.discard_buffers().await;
@@ -424,17 +461,12 @@ mod tests {
         ]);
 
         let auth_manager = Arc::new(
-            AuthManager::new_for_testing(
-                "test-token".to_string(),
-                "us-east-1".to_string(),
-                300,
-            )
-            .unwrap(),
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
         );
 
-        let http_client = Arc::new(
-            KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap()
-        );
+        let http_client =
+            Arc::new(KiroHttpClient::new(auth_manager.clone(), 20, 30, 300, 3).unwrap());
 
         let resolver = ModelResolver::new(cache.clone(), HashMap::new());
 
@@ -473,7 +505,7 @@ mod tests {
     async fn test_root_handler() {
         let json = root_handler().await;
         let value = json.0;
-        
+
         assert_eq!(value["status"], "ok");
         assert_eq!(value["message"], "Kiro Gateway is running");
         assert_eq!(value["version"], VERSION);
@@ -483,29 +515,29 @@ mod tests {
     async fn test_health_handler() {
         let json = health_handler().await;
         let value = json.0;
-        
+
         assert_eq!(value["status"], "healthy");
         assert!(value["timestamp"].is_string());
         assert_eq!(value["version"], VERSION);
     }
-    
+
     #[tokio::test]
     async fn test_get_models_handler() {
         let state = create_test_state();
-        
+
         // Call handler
         let result = get_models_handler(State(state)).await;
         assert!(result.is_ok());
-        
+
         let model_list = result.unwrap().0;
         assert_eq!(model_list.object, "list");
         assert_eq!(model_list.data.len(), 2);
-        
+
         // Check model properties
         let model_ids: Vec<String> = model_list.data.iter().map(|m| m.id.clone()).collect();
         assert!(model_ids.contains(&"claude-sonnet-4.5".to_string()));
         assert!(model_ids.contains(&"claude-haiku-4".to_string()));
-        
+
         // Check model fields
         for model in &model_list.data {
             assert_eq!(model.object, "model");
@@ -513,21 +545,19 @@ mod tests {
             assert!(model.description.is_some());
         }
     }
-    
+
     #[tokio::test]
     async fn test_anthropic_messages_handler_without_version_header() {
         let state = create_test_state();
-        
+
         // Create a request without anthropic-version header
         // This should NOT fail - the header is optional for compatibility
         let request = crate::models::anthropic::AnthropicMessagesRequest {
             model: "claude-sonnet-4".to_string(),
-            messages: vec![
-                crate::models::anthropic::AnthropicMessage {
-                    role: "user".to_string(),
-                    content: serde_json::json!("Hello"),
-                },
-            ],
+            messages: vec![crate::models::anthropic::AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("Hello"),
+            }],
             max_tokens: 100,
             system: None,
             stream: false,
@@ -539,24 +569,23 @@ mod tests {
             stop_sequences: None,
             metadata: None,
         };
-        
+
         let headers = axum::http::HeaderMap::new();
-        
+
         // Call handler - will fail later when trying to call Kiro API,
         // but should NOT fail due to missing anthropic-version header
-        let result = anthropic_messages_handler(
-            State(state),
-            headers,
-            Json(request),
-        ).await;
-        
+        let result = anthropic_messages_handler(State(state), headers, Json(request)).await;
+
         // The request should proceed past header validation
         // It will fail on the actual API call, but that's expected in tests
         match result {
             Err(ApiError::ValidationError(msg)) => {
                 // Should NOT be about anthropic-version
-                assert!(!msg.contains("anthropic-version"), 
-                    "anthropic-version header should be optional, got error: {}", msg);
+                assert!(
+                    !msg.contains("anthropic-version"),
+                    "anthropic-version header should be optional, got error: {}",
+                    msg
+                );
             }
             _ => {
                 // Any other error is fine - we just want to ensure it's not
@@ -564,11 +593,11 @@ mod tests {
             }
         }
     }
-    
+
     #[tokio::test]
     async fn test_anthropic_messages_handler_empty_messages() {
         let state = create_test_state();
-        
+
         // Create a request with empty messages
         let request = crate::models::anthropic::AnthropicMessagesRequest {
             model: "claude-sonnet-4".to_string(),
@@ -584,17 +613,13 @@ mod tests {
             stop_sequences: None,
             metadata: None,
         };
-        
+
         let mut headers = axum::http::HeaderMap::new();
         headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
-        
+
         // Call handler - should fail due to empty messages
-        let result = anthropic_messages_handler(
-            State(state),
-            headers,
-            Json(request),
-        ).await;
-        
+        let result = anthropic_messages_handler(State(state), headers, Json(request)).await;
+
         assert!(result.is_err());
         match result {
             Err(ApiError::ValidationError(msg)) => {

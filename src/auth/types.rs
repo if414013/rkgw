@@ -10,7 +10,7 @@ pub enum AuthType {
     /// Uses https://prod.{region}.auth.desktop.kiro.dev/refreshToken
     #[allow(dead_code)]
     KiroDesktop,
-    
+
     /// AWS SSO credentials from kiro-cli
     /// Uses https://oidc.{region}.amazonaws.com/token
     AwsSsoOidc,
@@ -24,7 +24,7 @@ pub struct Credentials {
     pub expires_at: Option<DateTime<Utc>>,
     pub profile_arn: Option<String>,
     pub region: String,
-    
+
     // AWS SSO OIDC specific fields
     pub client_id: Option<String>,
     pub client_secret: Option<String>,

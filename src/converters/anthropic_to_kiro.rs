@@ -44,10 +44,16 @@ fn convert_anthropic_content(content: &Value) -> MessageContent {
                     "image" => {
                         let source = block.get("source")?;
                         let source_type = source.get("type")?.as_str()?.to_string();
-                        let media_type = source.get("media_type").and_then(|v| v.as_str()).map(String::from);
-                        let data = source.get("data").and_then(|v| v.as_str()).map(String::from);
+                        let media_type = source
+                            .get("media_type")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        let data = source
+                            .get("data")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
                         let url = source.get("url").and_then(|v| v.as_str()).map(String::from);
-                        
+
                         Some(ContentBlock::Image {
                             source: super::core::ImageSource {
                                 source_type,
@@ -129,7 +135,11 @@ fn extract_tool_results_from_anthropic_content(content: &MessageContent) -> Vec<
 
     if let MessageContent::Blocks(blocks) = content {
         for block in blocks {
-            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+            if let ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+            } = block
+            {
                 tool_results.push(ToolResult {
                     result_type: "tool_result".to_string(),
                     tool_use_id: tool_use_id.clone(),
@@ -151,7 +161,7 @@ fn extract_tool_uses_from_anthropic_content(content: &MessageContent) -> Vec<Too
             if let ContentBlock::ToolUse { id, name, input } = block {
                 // Convert input to JSON string for unified format
                 let arguments = serde_json::to_string(input).unwrap_or_else(|_| "{}".to_string());
-                
+
                 tool_calls.push(ToolCall {
                     id: id.clone(),
                     call_type: "function".to_string(),
@@ -207,7 +217,11 @@ pub fn convert_anthropic_messages(messages: &[AnthropicMessage]) -> Vec<UnifiedM
 
                 (
                     None,
-                    if results.is_empty() { None } else { Some(results) },
+                    if results.is_empty() {
+                        None
+                    } else {
+                        Some(results)
+                    },
                     if imgs.is_empty() { None } else { Some(imgs) },
                 )
             }
@@ -434,7 +448,10 @@ mod tests {
                 match &blocks[0] {
                     ContentBlock::Image { source } => {
                         assert_eq!(source.source_type, "url");
-                        assert_eq!(source.url, Some("https://example.com/image.png".to_string()));
+                        assert_eq!(
+                            source.url,
+                            Some("https://example.com/image.png".to_string())
+                        );
                     }
                     _ => panic!("Expected Image block"),
                 }
@@ -484,7 +501,10 @@ mod tests {
             MessageContent::Blocks(blocks) => {
                 assert_eq!(blocks.len(), 1);
                 match &blocks[0] {
-                    ContentBlock::ToolResult { tool_use_id, content } => {
+                    ContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                    } => {
                         assert_eq!(tool_use_id, "tool_123");
                         assert_eq!(content, "The weather is sunny");
                     }
@@ -509,7 +529,10 @@ mod tests {
             MessageContent::Blocks(blocks) => {
                 assert_eq!(blocks.len(), 1);
                 match &blocks[0] {
-                    ContentBlock::ToolResult { tool_use_id, content } => {
+                    ContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                    } => {
                         assert_eq!(tool_use_id, "tool_456");
                         assert_eq!(content, "Result text");
                     }
@@ -583,7 +606,9 @@ mod tests {
                 tool_use_id: "tool_1".to_string(),
                 content: "Result 1".to_string(),
             },
-            ContentBlock::Text { text: "Some text".to_string() },
+            ContentBlock::Text {
+                text: "Some text".to_string(),
+            },
             ContentBlock::ToolResult {
                 tool_use_id: "tool_2".to_string(),
                 content: "Result 2".to_string(),
@@ -609,7 +634,9 @@ mod tests {
     #[test]
     fn test_extract_tool_uses_from_blocks() {
         let content = MessageContent::Blocks(vec![
-            ContentBlock::Text { text: "Let me check".to_string() },
+            ContentBlock::Text {
+                text: "Let me check".to_string(),
+            },
             ContentBlock::ToolUse {
                 id: "call_1".to_string(),
                 name: "get_weather".to_string(),
@@ -655,15 +682,13 @@ mod tests {
 
     #[test]
     fn test_convert_anthropic_messages_with_tool_use() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "assistant".to_string(),
-                content: json!([
-                    {"type": "text", "text": "Let me check the weather."},
-                    {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Seattle"}}
-                ]),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "assistant".to_string(),
+            content: json!([
+                {"type": "text", "text": "Let me check the weather."},
+                {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Seattle"}}
+            ]),
+        }];
 
         let unified = convert_anthropic_messages(&messages);
         assert_eq!(unified.len(), 1);
@@ -675,14 +700,12 @@ mod tests {
 
     #[test]
     fn test_convert_anthropic_messages_with_tool_result() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "user".to_string(),
-                content: json!([
-                    {"type": "tool_result", "tool_use_id": "call_1", "content": "72°F and sunny"}
-                ]),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: json!([
+                {"type": "tool_result", "tool_use_id": "call_1", "content": "72°F and sunny"}
+            ]),
+        }];
 
         let unified = convert_anthropic_messages(&messages);
         assert_eq!(unified.len(), 1);
@@ -694,15 +717,13 @@ mod tests {
 
     #[test]
     fn test_convert_anthropic_messages_with_images() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "user".to_string(),
-                content: json!([
-                    {"type": "text", "text": "What's in this image?"},
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "abc123"}}
-                ]),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: json!([
+                {"type": "text", "text": "What's in this image?"},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "abc123"}}
+            ]),
+        }];
 
         let unified = convert_anthropic_messages(&messages);
         assert_eq!(unified.len(), 1);
@@ -713,12 +734,10 @@ mod tests {
 
     #[test]
     fn test_convert_anthropic_messages_unknown_role() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "system".to_string(), // Not user or assistant
-                content: json!("System message"),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "system".to_string(), // Not user or assistant
+            content: json!("System message"),
+        }];
 
         let unified = convert_anthropic_messages(&messages);
         assert_eq!(unified.len(), 1);

@@ -12,9 +12,8 @@ static STANDARD_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(claude-(?:haiku|sonnet|opus)-\d+)-(\d{1,2})(?:-(?:\d{8}|latest|\d+))?$").unwrap()
 });
 
-static NO_MINOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^(claude-(?:haiku|sonnet|opus)-\d+)(?:-\d{8})?$").unwrap()
-});
+static NO_MINOR_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^(claude-(?:haiku|sonnet|opus)-\d+)(?:-\d{8})?$").unwrap());
 
 static LEGACY_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^(claude)-(\d+)-(\d+)-(haiku|sonnet|opus)(?:-(?:\d{8}|latest|\d+))?$").unwrap()
@@ -83,7 +82,7 @@ pub fn extract_model_family(model_name: &str) -> Option<String> {
 pub struct ModelResolver {
     /// Model cache
     cache: ModelCache,
-    
+
     /// Hidden models mapping (display name → internal ID)
     hidden_models: Arc<HashMap<String, String>>,
 }
@@ -167,16 +166,16 @@ impl Clone for ModelResolver {
 pub struct ModelResolution {
     /// ID to send to Kiro API
     pub internal_id: String,
-    
+
     /// Resolution source - "cache", "hidden", or "passthrough"
     pub source: String,
-    
+
     /// What client originally sent
     pub original_request: String,
-    
+
     /// Model name after normalization
     pub normalized: String,
-    
+
     /// True if found in cache/hidden, False if passthrough
     pub is_verified: bool,
 }
@@ -189,7 +188,10 @@ mod tests {
     fn test_normalize_model_name() {
         // Standard format with minor version
         assert_eq!(normalize_model_name("claude-haiku-4-5"), "claude-haiku-4.5");
-        assert_eq!(normalize_model_name("claude-sonnet-4-5"), "claude-sonnet-4.5");
+        assert_eq!(
+            normalize_model_name("claude-sonnet-4-5"),
+            "claude-sonnet-4.5"
+        );
         assert_eq!(normalize_model_name("claude-opus-4-5"), "claude-opus-4.5");
 
         // Standard format with date suffix
@@ -216,7 +218,10 @@ mod tests {
         );
 
         // Legacy format
-        assert_eq!(normalize_model_name("claude-3-7-sonnet"), "claude-3.7-sonnet");
+        assert_eq!(
+            normalize_model_name("claude-3-7-sonnet"),
+            "claude-3.7-sonnet"
+        );
         assert_eq!(
             normalize_model_name("claude-3-7-sonnet-20250219"),
             "claude-3.7-sonnet"
@@ -254,7 +259,7 @@ mod tests {
     #[test]
     fn test_model_resolver() {
         let cache = ModelCache::new(3600);
-        
+
         // Add a model to cache
         cache.update(vec![serde_json::json!({
             "modelId": "claude-sonnet-4.5",

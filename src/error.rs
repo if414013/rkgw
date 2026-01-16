@@ -45,16 +45,12 @@ impl IntoResponse for ApiError {
             ApiError::AuthError(msg) => (StatusCode::UNAUTHORIZED, "auth_error", msg),
             ApiError::InvalidModel(msg) => (StatusCode::BAD_REQUEST, "invalid_model", msg),
             ApiError::KiroApiError { status, message } => {
-                let status_code = StatusCode::from_u16(status)
-                    .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+                let status_code =
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
                 (status_code, "kiro_api_error", message)
             }
-            ApiError::ConfigError(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "config_error", msg)
-            }
-            ApiError::ValidationError(msg) => {
-                (StatusCode::BAD_REQUEST, "validation_error", msg)
-            }
+            ApiError::ConfigError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error", msg),
+            ApiError::ValidationError(msg) => (StatusCode::BAD_REQUEST, "validation_error", msg),
             ApiError::Internal(err) => {
                 // Log internal errors
                 tracing::error!("Internal error: {:?}", err);
@@ -97,10 +93,7 @@ mod tests {
             status: 429,
             message: "Rate limit exceeded".to_string(),
         };
-        assert_eq!(
-            err.to_string(),
-            "Kiro API error: 429 - Rate limit exceeded"
-        );
+        assert_eq!(err.to_string(), "Kiro API error: 429 - Rate limit exceeded");
     }
 
     #[test]

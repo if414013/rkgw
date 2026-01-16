@@ -42,11 +42,24 @@ pub enum MessageContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
-    Text { text: String },
-    Image { source: ImageSource },
-    ImageUrl { image_url: ImageUrl },
-    ToolResult { tool_use_id: String, content: String },
-    ToolUse { id: String, name: String, input: Value },
+    Text {
+        text: String,
+    },
+    Image {
+        source: ImageSource,
+    },
+    ImageUrl {
+        image_url: ImageUrl,
+    },
+    ToolResult {
+        tool_use_id: String,
+        content: String,
+    },
+    ToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,7 +169,10 @@ pub fn extract_images_from_content(content: &MessageContent) -> Vec<UnifiedImage
                             images.push(UnifiedImage { media_type, data });
                         }
                     } else if image_url.url.starts_with("http") {
-                        warn!("URL-based images are not supported by Kiro API, skipping: {}...", &image_url.url[..80.min(image_url.url.len())]);
+                        warn!(
+                            "URL-based images are not supported by Kiro API, skipping: {}...",
+                            &image_url.url[..80.min(image_url.url.len())]
+                        );
                     }
                 }
                 // Anthropic format
@@ -165,14 +181,19 @@ pub fn extract_images_from_content(content: &MessageContent) -> Vec<UnifiedImage
                         if let (Some(data), media_type) = (&source.data, &source.media_type) {
                             if !data.is_empty() {
                                 images.push(UnifiedImage {
-                                    media_type: media_type.clone().unwrap_or_else(|| "image/jpeg".to_string()),
+                                    media_type: media_type
+                                        .clone()
+                                        .unwrap_or_else(|| "image/jpeg".to_string()),
                                     data: data.clone(),
                                 });
                             }
                         }
                     } else if source.source_type == "url" {
                         if let Some(url) = &source.url {
-                            warn!("URL-based images are not supported by Kiro API, skipping: {}...", &url[..80.min(url.len())]);
+                            warn!(
+                                "URL-based images are not supported by Kiro API, skipping: {}...",
+                                &url[..80.min(url.len())]
+                            );
                         }
                     }
                 }
@@ -257,7 +278,10 @@ pub fn inject_thinking_tags(content: String, config: &Config) -> String {
         config.fake_reasoning_max_tokens, thinking_instruction
     );
 
-    debug!("Injecting fake reasoning tags with max_tokens={}", config.fake_reasoning_max_tokens);
+    debug!(
+        "Injecting fake reasoning tags with max_tokens={}",
+        config.fake_reasoning_max_tokens
+    );
 
     thinking_prefix + &content
 }
@@ -367,8 +391,10 @@ pub fn process_tools_with_long_descriptions(
             tool_documentation_parts.push(format!("## Tool: {}\n\n{}", tool.name, description));
 
             // Create copy with reference description
-            let reference_description =
-                format!("[Full documentation in system prompt under '## Tool: {}']", tool.name);
+            let reference_description = format!(
+                "[Full documentation in system prompt under '## Tool: {}']",
+                tool.name
+            );
 
             processed_tools.push(UnifiedTool {
                 name: tool.name,
@@ -419,7 +445,10 @@ pub fn convert_tools_to_kiro_format(tools: &Option<Vec<UnifiedTool>>) -> Vec<Val
             .filter(|d| !d.trim().is_empty())
             .cloned()
             .unwrap_or_else(|| {
-                debug!("Tool '{}' has empty description, using placeholder", tool.name);
+                debug!(
+                    "Tool '{}' has empty description, using placeholder",
+                    tool.name
+                );
                 format!("Tool: {}", tool.name)
             });
 
@@ -458,7 +487,10 @@ pub fn convert_images_to_kiro_format(images: &Option<Vec<UnifiedImage>>) -> Vec<
             if let Some((extracted_media, extracted_data)) = parse_data_url(&data) {
                 media_type = extracted_media;
                 data = extracted_data;
-                debug!("Stripped data URL prefix, extracted media_type: {}", media_type);
+                debug!(
+                    "Stripped data URL prefix, extracted media_type: {}",
+                    media_type
+                );
             }
         }
 
@@ -523,7 +555,11 @@ pub fn extract_tool_results_from_content(content: &MessageContent) -> Vec<Value>
 
     if let MessageContent::Blocks(blocks) = content {
         for block in blocks {
-            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+            if let ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+            } = block
+            {
                 let content_text = if content.is_empty() {
                     "(empty result)"
                 } else {
@@ -543,7 +579,7 @@ pub fn extract_tool_results_from_content(content: &MessageContent) -> Vec<Value>
 }
 
 /// Extracts tool uses from assistant message.
-/// 
+///
 /// This function also deduplicates tool uses by ID, keeping the one with more
 /// content in the input field. This handles cases where the Kiro API sends
 /// duplicate tool calls (one with arguments, one empty).
@@ -556,7 +592,8 @@ pub fn extract_tool_uses_from_message(
     // From tool_calls field
     if let Some(calls) = tool_calls {
         for tc in calls {
-            let input_data: Value = serde_json::from_str(&tc.function.arguments).unwrap_or(json!({}));
+            let input_data: Value =
+                serde_json::from_str(&tc.function.arguments).unwrap_or(json!({}));
             tool_uses.push(json!({
                 "name": tc.function.name,
                 "input": input_data,
@@ -583,41 +620,44 @@ pub fn extract_tool_uses_from_message(
 }
 
 /// Deduplicates tool uses by toolUseId, keeping the one with more content.
-/// 
+///
 /// This handles the case where Kiro API sends duplicate tool calls - one with
 /// proper arguments and one with empty arguments.
 fn deduplicate_tool_uses_json(tool_uses: Vec<Value>) -> Vec<Value> {
     use std::collections::HashMap;
-    
+
     if tool_uses.len() <= 1 {
         return tool_uses;
     }
-    
+
     let original_count = tool_uses.len();
     let mut by_id: HashMap<String, Value> = HashMap::new();
-    
+
     for tool_use in tool_uses {
-        let id = tool_use.get("toolUseId")
+        let id = tool_use
+            .get("toolUseId")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        
+
         if id.is_empty() {
             // No ID, can't deduplicate - keep it
             by_id.insert(format!("__no_id_{}", by_id.len()), tool_use);
             continue;
         }
-        
+
         // Calculate "content size" - prefer the one with more input data
-        let input_size = tool_use.get("input")
+        let input_size = tool_use
+            .get("input")
             .map(|v| v.to_string().len())
             .unwrap_or(0);
-        
+
         if let Some(existing) = by_id.get(&id) {
-            let existing_size = existing.get("input")
+            let existing_size = existing
+                .get("input")
                 .map(|v| v.to_string().len())
                 .unwrap_or(0);
-            
+
             // Keep the one with more content
             if input_size > existing_size {
                 by_id.insert(id, tool_use);
@@ -626,9 +666,9 @@ fn deduplicate_tool_uses_json(tool_uses: Vec<Value>) -> Vec<Value> {
             by_id.insert(id, tool_use);
         }
     }
-    
+
     let unique: Vec<Value> = by_id.into_values().collect();
-    
+
     if unique.len() != original_count {
         tracing::debug!(
             "Deduplicated tool uses in conversation history: {} -> {}",
@@ -636,7 +676,7 @@ fn deduplicate_tool_uses_json(tool_uses: Vec<Value>) -> Vec<Value> {
             unique.len()
         );
     }
-    
+
     unique
 }
 
@@ -817,10 +857,11 @@ pub fn ensure_assistant_before_tool_results(
         if let Some(ref tool_results) = msg.tool_results {
             if !tool_results.is_empty() {
                 // Check if the previous message is an assistant with tool_calls
-                let has_preceding_assistant = result.last().map_or(false, |last: &UnifiedMessage| {
-                    last.role == "assistant"
-                        && last.tool_calls.as_ref().map_or(false, |tc| !tc.is_empty())
-                });
+                let has_preceding_assistant =
+                    result.last().map_or(false, |last: &UnifiedMessage| {
+                        last.role == "assistant"
+                            && last.tool_calls.as_ref().map_or(false, |tc| !tc.is_empty())
+                    });
 
                 if !has_preceding_assistant {
                     // Strip the tool_results to avoid "Improperly formed request" error
@@ -879,7 +920,8 @@ pub fn merge_adjacent_messages(messages: Vec<UnifiedMessage>) -> Vec<UnifiedMess
             // Merge content
             let last_text = extract_text_content(&merged[last_idx].content);
             let current_text = extract_text_content(&msg.content);
-            merged[last_idx].content = MessageContent::Text(format!("{}\n{}", last_text, current_text));
+            merged[last_idx].content =
+                MessageContent::Text(format!("{}\n{}", last_text, current_text));
 
             // Merge tool_calls for assistant
             if msg.role == "assistant" {
@@ -973,7 +1015,10 @@ pub fn build_kiro_history(messages: &[UnifiedMessage], model_id: &str) -> Vec<Va
                     }
                 }
 
-                if user_input_context.as_object().map_or(false, |o| !o.is_empty()) {
+                if user_input_context
+                    .as_object()
+                    .map_or(false, |o| !o.is_empty())
+                {
                     user_input["userInputMessageContext"] = user_input_context;
                 }
 
@@ -1091,16 +1136,14 @@ mod tests {
 
     #[test]
     fn test_tool_calls_to_text() {
-        let tool_calls = vec![
-            ToolCall {
-                id: "call_123".to_string(),
-                call_type: "function".to_string(),
-                function: ToolFunction {
-                    name: "bash".to_string(),
-                    arguments: r#"{"command": "ls"}"#.to_string(),
-                },
+        let tool_calls = vec![ToolCall {
+            id: "call_123".to_string(),
+            call_type: "function".to_string(),
+            function: ToolFunction {
+                name: "bash".to_string(),
+                arguments: r#"{"command": "ls"}"#.to_string(),
             },
-        ];
+        }];
 
         let result = tool_calls_to_text(&tool_calls);
         assert!(result.contains("[Tool: bash (call_123)]"));
@@ -1116,13 +1159,11 @@ mod tests {
 
     #[test]
     fn test_tool_results_to_text() {
-        let tool_results = vec![
-            ToolResult {
-                result_type: "tool_result".to_string(),
-                tool_use_id: "call_123".to_string(),
-                content: "file1.txt\nfile2.txt".to_string(),
-            },
-        ];
+        let tool_results = vec![ToolResult {
+            result_type: "tool_result".to_string(),
+            tool_use_id: "call_123".to_string(),
+            content: "file1.txt\nfile2.txt".to_string(),
+        }];
 
         let result = tool_results_to_text(&tool_results);
         assert!(result.contains("[Tool Result (call_123)]"));
@@ -1131,13 +1172,11 @@ mod tests {
 
     #[test]
     fn test_tool_results_to_text_empty_content() {
-        let tool_results = vec![
-            ToolResult {
-                result_type: "tool_result".to_string(),
-                tool_use_id: "call_456".to_string(),
-                content: "".to_string(),
-            },
-        ];
+        let tool_results = vec![ToolResult {
+            result_type: "tool_result".to_string(),
+            tool_use_id: "call_456".to_string(),
+            content: "".to_string(),
+        }];
 
         let result = tool_results_to_text(&tool_results);
         assert!(result.contains("[Tool Result (call_456)]"));
@@ -1205,15 +1244,13 @@ mod tests {
 
     #[test]
     fn test_strip_all_tool_content_no_tools() {
-        let messages = vec![
-            UnifiedMessage {
-                role: "user".to_string(),
-                content: MessageContent::Text("Hello".to_string()),
-                tool_calls: None,
-                tool_results: None,
-                images: None,
-            },
-        ];
+        let messages = vec![UnifiedMessage {
+            role: "user".to_string(),
+            content: MessageContent::Text("Hello".to_string()),
+            tool_calls: None,
+            tool_results: None,
+            images: None,
+        }];
 
         let (result, had_tool_content) = strip_all_tool_content(messages);
 
@@ -1298,7 +1335,7 @@ mod tests {
         assert_eq!(result.len(), 2);
         assert!(result[1].tool_results.is_none());
     }
-    
+
     #[test]
     fn test_merge_adjacent_messages() {
         let messages = vec![
@@ -1324,7 +1361,7 @@ mod tests {
         assert!(content.contains("Hello"));
         assert!(content.contains("World"));
     }
-    
+
     #[test]
     fn test_merge_adjacent_messages_different_roles() {
         let messages = vec![
@@ -1347,23 +1384,21 @@ mod tests {
         let result = merge_adjacent_messages(messages);
         assert_eq!(result.len(), 2);
     }
-    
+
     #[test]
     fn test_merge_adjacent_messages_empty() {
         let messages: Vec<UnifiedMessage> = vec![];
         let result = merge_adjacent_messages(messages);
         assert!(result.is_empty());
     }
-    
+
     #[test]
     fn test_convert_tool_results_to_kiro_format() {
-        let tool_results = vec![
-            ToolResult {
-                result_type: "tool_result".to_string(),
-                tool_use_id: "call_123".to_string(),
-                content: "Success output".to_string(),
-            },
-        ];
+        let tool_results = vec![ToolResult {
+            result_type: "tool_result".to_string(),
+            tool_use_id: "call_123".to_string(),
+            content: "Success output".to_string(),
+        }];
 
         let result = convert_tool_results_to_kiro_format(&tool_results);
         assert_eq!(result.len(), 1);
@@ -1371,133 +1406,127 @@ mod tests {
         assert_eq!(result[0]["status"], "success");
         assert_eq!(result[0]["content"][0]["text"], "Success output");
     }
-    
+
     #[test]
     fn test_convert_images_to_kiro_format() {
-        let images = Some(vec![
-            UnifiedImage {
-                media_type: "image/jpeg".to_string(),
-                data: "base64data".to_string(),
-            },
-        ]);
+        let images = Some(vec![UnifiedImage {
+            media_type: "image/jpeg".to_string(),
+            data: "base64data".to_string(),
+        }]);
 
         let result = convert_images_to_kiro_format(&images);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["format"], "jpeg");
         assert_eq!(result[0]["source"]["bytes"], "base64data");
     }
-    
+
     #[test]
     fn test_convert_images_to_kiro_format_none() {
         let result = convert_images_to_kiro_format(&None);
         assert!(result.is_empty());
     }
-    
+
     #[test]
     fn test_convert_images_to_kiro_format_empty_data() {
-        let images = Some(vec![
-            UnifiedImage {
-                media_type: "image/png".to_string(),
-                data: "".to_string(),
-            },
-        ]);
+        let images = Some(vec![UnifiedImage {
+            media_type: "image/png".to_string(),
+            data: "".to_string(),
+        }]);
 
         let result = convert_images_to_kiro_format(&images);
         assert!(result.is_empty()); // Empty data should be skipped
     }
-    
+
     #[test]
     fn test_convert_tools_to_kiro_format() {
-        let tools = Some(vec![
-            UnifiedTool {
-                name: "get_weather".to_string(),
-                description: Some("Get weather for a location".to_string()),
-                input_schema: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string"}
-                    }
-                })),
-            },
-        ]);
+        let tools = Some(vec![UnifiedTool {
+            name: "get_weather".to_string(),
+            description: Some("Get weather for a location".to_string()),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "location": {"type": "string"}
+                }
+            })),
+        }]);
 
         let result = convert_tools_to_kiro_format(&tools);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["toolSpecification"]["name"], "get_weather");
-        assert_eq!(result[0]["toolSpecification"]["description"], "Get weather for a location");
+        assert_eq!(
+            result[0]["toolSpecification"]["description"],
+            "Get weather for a location"
+        );
     }
-    
+
     #[test]
     fn test_convert_tools_to_kiro_format_empty_description() {
-        let tools = Some(vec![
-            UnifiedTool {
-                name: "my_tool".to_string(),
-                description: Some("".to_string()),
-                input_schema: None,
-            },
-        ]);
+        let tools = Some(vec![UnifiedTool {
+            name: "my_tool".to_string(),
+            description: Some("".to_string()),
+            input_schema: None,
+        }]);
 
         let result = convert_tools_to_kiro_format(&tools);
         assert_eq!(result.len(), 1);
         // Empty description should get a placeholder
-        assert_eq!(result[0]["toolSpecification"]["description"], "Tool: my_tool");
+        assert_eq!(
+            result[0]["toolSpecification"]["description"],
+            "Tool: my_tool"
+        );
     }
-    
+
     #[test]
     fn test_convert_tools_to_kiro_format_none() {
         let result = convert_tools_to_kiro_format(&None);
         assert!(result.is_empty());
     }
-    
+
     #[test]
     fn test_extract_images_from_content_openai_format() {
-        let content = MessageContent::Blocks(vec![
-            ContentBlock::ImageUrl {
-                image_url: ImageUrl {
-                    url: "data:image/jpeg;base64,/9j/4AAQ".to_string(),
-                },
+        let content = MessageContent::Blocks(vec![ContentBlock::ImageUrl {
+            image_url: ImageUrl {
+                url: "data:image/jpeg;base64,/9j/4AAQ".to_string(),
             },
-        ]);
+        }]);
 
         let result = extract_images_from_content(&content);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].media_type, "image/jpeg");
         assert_eq!(result[0].data, "/9j/4AAQ");
     }
-    
+
     #[test]
     fn test_extract_images_from_content_anthropic_format() {
-        let content = MessageContent::Blocks(vec![
-            ContentBlock::Image {
-                source: ImageSource {
-                    source_type: "base64".to_string(),
-                    media_type: Some("image/png".to_string()),
-                    data: Some("pngdata".to_string()),
-                    url: None,
-                },
+        let content = MessageContent::Blocks(vec![ContentBlock::Image {
+            source: ImageSource {
+                source_type: "base64".to_string(),
+                media_type: Some("image/png".to_string()),
+                data: Some("pngdata".to_string()),
+                url: None,
             },
-        ]);
+        }]);
 
         let result = extract_images_from_content(&content);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].media_type, "image/png");
         assert_eq!(result[0].data, "pngdata");
     }
-    
+
     #[test]
     fn test_extract_images_from_content_text_only() {
         let content = MessageContent::Text("No images here".to_string());
         let result = extract_images_from_content(&content);
         assert!(result.is_empty());
     }
-    
+
     #[test]
     fn test_parse_data_url_invalid() {
         assert!(parse_data_url("not a data url").is_none());
         assert!(parse_data_url("data:").is_none());
         assert!(parse_data_url("http://example.com/image.jpg").is_none());
     }
-    
+
     #[test]
     fn test_sanitize_json_schema_nested() {
         let schema = json!({
@@ -1519,51 +1548,47 @@ mod tests {
         assert!(sanitized["properties"]["nested"]["required"].is_null());
         assert!(sanitized["properties"]["nested"]["additionalProperties"].is_null());
     }
-    
+
     #[test]
     fn test_sanitize_json_schema_non_object() {
         let schema = json!("string");
         let sanitized = sanitize_json_schema(&schema);
         assert_eq!(sanitized, json!("string"));
     }
-    
+
     #[test]
     fn test_extract_tool_uses_from_message() {
-        let content = MessageContent::Blocks(vec![
-            ContentBlock::ToolUse {
-                id: "tool_123".to_string(),
-                name: "bash".to_string(),
-                input: json!({"command": "ls"}),
-            },
-        ]);
-        
+        let content = MessageContent::Blocks(vec![ContentBlock::ToolUse {
+            id: "tool_123".to_string(),
+            name: "bash".to_string(),
+            input: json!({"command": "ls"}),
+        }]);
+
         let result = extract_tool_uses_from_message(&content, &None);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["toolUseId"], "tool_123");
         assert_eq!(result[0]["name"], "bash");
     }
-    
+
     #[test]
     fn test_extract_tool_uses_from_tool_calls() {
         let content = MessageContent::Text("".to_string());
-        let tool_calls = Some(vec![
-            ToolCall {
-                id: "call_456".to_string(),
-                call_type: "function".to_string(),
-                function: ToolFunction {
-                    name: "get_weather".to_string(),
-                    arguments: r#"{"location": "NYC"}"#.to_string(),
-                },
+        let tool_calls = Some(vec![ToolCall {
+            id: "call_456".to_string(),
+            call_type: "function".to_string(),
+            function: ToolFunction {
+                name: "get_weather".to_string(),
+                arguments: r#"{"location": "NYC"}"#.to_string(),
             },
-        ]);
-        
+        }]);
+
         let result = extract_tool_uses_from_message(&content, &tool_calls);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["toolUseId"], "call_456");
         assert_eq!(result[0]["name"], "get_weather");
         assert_eq!(result[0]["input"]["location"], "NYC");
     }
-    
+
     #[test]
     fn test_extract_tool_uses_deduplicates_by_id() {
         // Simulate duplicate tool uses with same ID - one with args, one empty
@@ -1576,16 +1601,16 @@ mod tests {
             ContentBlock::ToolUse {
                 id: "tool_123".to_string(),
                 name: "Read".to_string(),
-                input: json!({}),  // Empty - should be discarded
+                input: json!({}), // Empty - should be discarded
             },
         ]);
-        
+
         let result = extract_tool_uses_from_message(&content, &None);
         assert_eq!(result.len(), 1, "Should deduplicate to 1 tool use");
         assert_eq!(result[0]["toolUseId"], "tool_123");
         assert_eq!(result[0]["input"]["file_path"], "/path/to/file.txt");
     }
-    
+
     #[test]
     fn test_extract_tool_uses_keeps_larger_input() {
         // When both have content, keep the one with more
@@ -1593,15 +1618,15 @@ mod tests {
             ContentBlock::ToolUse {
                 id: "tool_abc".to_string(),
                 name: "Write".to_string(),
-                input: json!({"path": "a"}),  // Smaller
+                input: json!({"path": "a"}), // Smaller
             },
             ContentBlock::ToolUse {
                 id: "tool_abc".to_string(),
                 name: "Write".to_string(),
-                input: json!({"path": "a", "content": "lots of content here"}),  // Larger
+                input: json!({"path": "a", "content": "lots of content here"}), // Larger
             },
         ]);
-        
+
         let result = extract_tool_uses_from_message(&content, &None);
         assert_eq!(result.len(), 1);
         // Should keep the one with more content

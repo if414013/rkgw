@@ -34,10 +34,7 @@ fn get_machine_fingerprint() -> String {
 }
 
 /// Refresh token using Kiro Desktop Auth
-pub async fn refresh_kiro_desktop(
-    client: &Client,
-    creds: &Credentials,
-) -> Result<TokenData> {
+pub async fn refresh_kiro_desktop(client: &Client, creds: &Credentials) -> Result<TokenData> {
     tracing::info!("Refreshing Kiro token via Kiro Desktop Auth...");
 
     let url = get_kiro_refresh_url(&creds.region);
@@ -75,7 +72,10 @@ pub async fn refresh_kiro_desktop(
     let expires_in = data.expires_in.unwrap_or(3600);
     let expires_at = Utc::now() + Duration::seconds(expires_in as i64 - 60);
 
-    tracing::info!("Token refreshed via Kiro Desktop Auth, expires: {}", expires_at.to_rfc3339());
+    tracing::info!(
+        "Token refreshed via Kiro Desktop Auth, expires: {}",
+        expires_at.to_rfc3339()
+    );
 
     Ok(TokenData {
         access_token: data.access_token,
@@ -86,10 +86,7 @@ pub async fn refresh_kiro_desktop(
 }
 
 /// Refresh token using AWS SSO OIDC
-pub async fn refresh_aws_sso_oidc(
-    client: &Client,
-    creds: &Credentials,
-) -> Result<TokenData> {
+pub async fn refresh_aws_sso_oidc(client: &Client, creds: &Credentials) -> Result<TokenData> {
     tracing::info!("Refreshing Kiro token via AWS SSO OIDC...");
 
     let client_id = creds
@@ -132,18 +129,26 @@ pub async fn refresh_aws_sso_oidc(
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        tracing::error!("AWS SSO OIDC refresh failed: status={}, body={}", status, error_text);
-        
+        tracing::error!(
+            "AWS SSO OIDC refresh failed: status={}, body={}",
+            status,
+            error_text
+        );
+
         // Try to parse AWS error for more details
         if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(&error_text) {
             if let (Some(error_code), Some(error_desc)) = (
                 error_json.get("error").and_then(|v| v.as_str()),
                 error_json.get("error_description").and_then(|v| v.as_str()),
             ) {
-                tracing::error!("AWS SSO OIDC error details: error={}, description={}", error_code, error_desc);
+                tracing::error!(
+                    "AWS SSO OIDC error details: error={}, description={}",
+                    error_code,
+                    error_desc
+                );
             }
         }
-        
+
         anyhow::bail!("AWS SSO OIDC refresh failed: {} - {}", status, error_text);
     }
 
@@ -160,7 +165,10 @@ pub async fn refresh_aws_sso_oidc(
     let expires_in = data.expires_in.unwrap_or(3600);
     let expires_at = Utc::now() + Duration::seconds(expires_in as i64 - 60);
 
-    tracing::info!("Token refreshed via AWS SSO OIDC, expires: {}", expires_at.to_rfc3339());
+    tracing::info!(
+        "Token refreshed via AWS SSO OIDC, expires: {}",
+        expires_at.to_rfc3339()
+    );
 
     Ok(TokenData {
         access_token: data.access_token,
@@ -188,11 +196,11 @@ pub async fn refresh_with_retry(
         if let Some(sqlite_path) = sqlite_path {
             if e.to_string().contains("400") {
                 tracing::warn!("Token refresh failed with 400, reloading credentials from SQLite and retrying...");
-                
+
                 // Reload credentials from SQLite
                 *creds = super::credentials::load_from_sqlite(sqlite_path)
                     .context("Failed to reload credentials from SQLite")?;
-                
+
                 // Retry refresh
                 return match auth_type {
                     AuthType::KiroDesktop => refresh_kiro_desktop(client, creds).await,

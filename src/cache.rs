@@ -11,10 +11,10 @@ const DEFAULT_MAX_INPUT_TOKENS: i32 = 200_000;
 pub struct ModelCache {
     /// Model data indexed by model ID
     cache: Arc<DashMap<String, Value>>,
-    
+
     /// Last update timestamp
     last_update: Arc<dashmap::DashMap<(), u64>>,
-    
+
     /// Cache TTL in seconds
     cache_ttl: u64,
 }
@@ -32,17 +32,17 @@ impl ModelCache {
     /// Update the cache with new model data
     pub fn update(&self, models_data: Vec<Value>) {
         tracing::info!("Updating model cache. Found {} models.", models_data.len());
-        
+
         // Clear existing cache
         self.cache.clear();
-        
+
         // Add new models
         for model in models_data {
             if let Some(model_id) = model.get("modelId").and_then(|v| v.as_str()) {
                 self.cache.insert(model_id.to_string(), model);
             }
         }
-        
+
         // Update timestamp
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -75,7 +75,7 @@ impl ModelCache {
                 "_internal_id": internal_id,
                 "_is_hidden": true
             });
-            
+
             self.cache.insert(display_name.to_string(), model_data);
             tracing::debug!("Added hidden model: {} → {}", display_name, internal_id);
         }
@@ -125,7 +125,10 @@ impl ModelCache {
     /// Get all models as a list
     #[allow(dead_code)]
     pub fn get_all_models(&self) -> Vec<Value> {
-        self.cache.iter().map(|entry| entry.value().clone()).collect()
+        self.cache
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 }
 
@@ -146,11 +149,11 @@ mod tests {
     #[test]
     fn test_model_cache_basic() {
         let cache = ModelCache::new(3600);
-        
+
         // Initially empty
         assert!(cache.is_empty());
         assert!(cache.is_stale());
-        
+
         // Add models
         let models = vec![
             serde_json::json!({
@@ -164,35 +167,38 @@ mod tests {
                 "tokenLimits": {"maxInputTokens": 200000}
             }),
         ];
-        
+
         cache.update(models);
-        
+
         // No longer empty
         assert!(!cache.is_empty());
         assert!(!cache.is_stale());
-        
+
         // Can retrieve models
         assert!(cache.is_valid_model("claude-sonnet-4"));
         assert!(cache.is_valid_model("claude-haiku-4"));
         assert!(!cache.is_valid_model("gpt-4"));
-        
+
         // Can get model data
         let model = cache.get("claude-sonnet-4").unwrap();
         assert_eq!(model["modelName"], "Claude Sonnet 4");
-        
+
         // Can get max tokens
         assert_eq!(cache.get_max_input_tokens("claude-sonnet-4"), 200000);
-        assert_eq!(cache.get_max_input_tokens("unknown"), DEFAULT_MAX_INPUT_TOKENS);
+        assert_eq!(
+            cache.get_max_input_tokens("unknown"),
+            DEFAULT_MAX_INPUT_TOKENS
+        );
     }
 
     #[test]
     fn test_hidden_models() {
         let cache = ModelCache::new(3600);
-        
+
         cache.add_hidden_model("claude-3.7-sonnet", "CLAUDE_3_7_SONNET_20250219_V1_0");
-        
+
         assert!(cache.is_valid_model("claude-3.7-sonnet"));
-        
+
         let model = cache.get("claude-3.7-sonnet").unwrap();
         assert_eq!(model["_is_hidden"], true);
         assert_eq!(model["_internal_id"], "CLAUDE_3_7_SONNET_20250219_V1_0");

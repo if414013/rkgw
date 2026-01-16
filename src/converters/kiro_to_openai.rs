@@ -45,7 +45,8 @@ pub fn convert_kiro_to_openai_response(
             .map(|tool_use| {
                 let tool_use_id = tool_use.tool_use_id.clone();
                 let name = tool_use.name.clone();
-                let arguments = serde_json::to_string(&tool_use.input).unwrap_or_else(|_| "{}".to_string());
+                let arguments =
+                    serde_json::to_string(&tool_use.input).unwrap_or_else(|_| "{}".to_string());
 
                 ToolCall {
                     id: tool_use_id,
@@ -133,7 +134,8 @@ mod tests {
             usage: None,
         };
 
-        let response = convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-123");
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-123");
 
         assert_eq!(response.model, "claude-sonnet-4");
         assert_eq!(response.id, "test-123");
@@ -163,7 +165,8 @@ mod tests {
             usage: None,
         };
 
-        let response = convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-456");
+        let response =
+            convert_kiro_to_openai_response(&kiro_response, "claude-sonnet-4", "test-456");
 
         assert_eq!(response.choices.len(), 1);
         assert!(response.choices[0].message.tool_calls.is_some());
@@ -171,6 +174,9 @@ mod tests {
         assert_eq!(tool_calls.len(), 1);
         assert_eq!(tool_calls[0].id, "call_abc123");
         assert_eq!(tool_calls[0].function.name, "get_weather");
-        assert_eq!(response.choices[0].finish_reason, Some("tool_calls".to_string()));
+        assert_eq!(
+            response.choices[0].finish_reason,
+            Some("tool_calls".to_string())
+        );
     }
 }

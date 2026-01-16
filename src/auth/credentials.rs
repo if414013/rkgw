@@ -4,9 +4,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use std::path::Path;
 
-use super::types::{
-    AuthType, Credentials, SqliteDeviceRegistration, SqliteTokenData,
-};
+use super::types::{AuthType, Credentials, SqliteDeviceRegistration, SqliteTokenData};
 
 /// Load credentials from SQLite database (kiro-cli)
 pub fn load_from_sqlite(path: &Path) -> Result<Credentials> {
@@ -29,8 +27,8 @@ pub fn load_from_sqlite(path: &Path) -> Result<Credentials> {
         })
         .context("Failed to load token data from SQLite")?;
 
-    let token_data: SqliteTokenData = serde_json::from_str(&token_json)
-        .context("Failed to parse token data from SQLite")?;
+    let token_data: SqliteTokenData =
+        serde_json::from_str(&token_json).context("Failed to parse token data from SQLite")?;
 
     // Load device registration (try both key formats)
     let registration_json: String = conn
@@ -55,15 +53,11 @@ pub fn load_from_sqlite(path: &Path) -> Result<Credentials> {
         .refresh_token
         .context("SQLite token data must contain refresh_token")?;
 
-    let expires_at = token_data
-        .expires_at
-        .and_then(|s| parse_datetime(&s).ok());
+    let expires_at = token_data.expires_at.and_then(|s| parse_datetime(&s).ok());
 
     // SSO region is used for OIDC token refresh only
     // API region stays as us-east-1 (CodeWhisperer is only available there)
-    let sso_region = token_data
-        .region
-        .or(registration.region);
+    let sso_region = token_data.region.or(registration.region);
 
     Ok(Credentials {
         refresh_token,

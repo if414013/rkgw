@@ -8,8 +8,8 @@
 // empirical observations: Claude tokenizes text approximately 15%
 // more than GPT-4 (cl100k_base).
 
-use serde_json::Value;
 use crate::models::anthropic::AnthropicTool;
+use serde_json::Value;
 
 /// Correction coefficient for Claude models
 /// Claude tokenizes text approximately 15% more than GPT-4 (cl100k_base)
@@ -117,13 +117,16 @@ pub fn count_anthropic_message_tokens(
                                     total_tokens += count_tokens(name, false);
                                 }
                                 if let Some(input) = obj.get("input") {
-                                    let input_str = serde_json::to_string(input).unwrap_or_default();
+                                    let input_str =
+                                        serde_json::to_string(input).unwrap_or_default();
                                     total_tokens += count_tokens(&input_str, false);
                                 }
                             }
                             Some("tool_result") => {
                                 total_tokens += 4; // Service tokens
-                                if let Some(tool_use_id) = obj.get("tool_use_id").and_then(|id| id.as_str()) {
+                                if let Some(tool_use_id) =
+                                    obj.get("tool_use_id").and_then(|id| id.as_str())
+                                {
                                     total_tokens += count_tokens(tool_use_id, false);
                                 }
                                 if let Some(content) = obj.get("content") {
@@ -133,7 +136,9 @@ pub fn count_anthropic_message_tokens(
                                         }
                                         Value::Array(arr) => {
                                             for c in arr {
-                                                if let Some(text) = c.get("text").and_then(|t| t.as_str()) {
+                                                if let Some(text) =
+                                                    c.get("text").and_then(|t| t.as_str())
+                                                {
                                                     total_tokens += count_tokens(text, false);
                                                 }
                                             }
@@ -143,7 +148,8 @@ pub fn count_anthropic_message_tokens(
                                 }
                             }
                             Some("thinking") => {
-                                if let Some(thinking) = obj.get("thinking").and_then(|t| t.as_str()) {
+                                if let Some(thinking) = obj.get("thinking").and_then(|t| t.as_str())
+                                {
                                     total_tokens += count_tokens(thinking, false);
                                 }
                             }
@@ -216,24 +222,20 @@ mod tests {
 
     #[test]
     fn test_count_anthropic_message_tokens_simple() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "user".to_string(),
-                content: json!("Hello, how are you?"),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: json!("Hello, how are you?"),
+        }];
         let tokens = count_anthropic_message_tokens(&messages, None, None);
         assert!(tokens > 0);
     }
 
     #[test]
     fn test_count_anthropic_message_tokens_with_system() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "user".to_string(),
-                content: json!("Hello"),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: json!("Hello"),
+        }];
         let system = json!("You are a helpful assistant.");
         let tokens = count_anthropic_message_tokens(&messages, Some(&system), None);
         assert!(tokens > 0);
@@ -241,15 +243,13 @@ mod tests {
 
     #[test]
     fn test_count_anthropic_message_tokens_multimodal() {
-        let messages = vec![
-            AnthropicMessage {
-                role: "user".to_string(),
-                content: json!([
-                    {"type": "text", "text": "What's in this image?"},
-                    {"type": "image", "source": {"type": "base64", "data": "..."}}
-                ]),
-            },
-        ];
+        let messages = vec![AnthropicMessage {
+            role: "user".to_string(),
+            content: json!([
+                {"type": "text", "text": "What's in this image?"},
+                {"type": "image", "source": {"type": "base64", "data": "..."}}
+            ]),
+        }];
         let tokens = count_anthropic_message_tokens(&messages, None, None);
         assert!(tokens >= 100); // At least image tokens
     }

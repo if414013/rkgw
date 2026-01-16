@@ -178,14 +178,9 @@ pub enum KiroStreamEvent {
         content_block: serde_json::Value,
     },
     #[serde(rename = "contentBlockDelta")]
-    ContentBlockDelta {
-        index: i32,
-        delta: Delta,
-    },
+    ContentBlockDelta { index: i32, delta: Delta },
     #[serde(rename = "contentBlockStop")]
-    ContentBlockStop {
-        index: i32,
-    },
+    ContentBlockStop { index: i32 },
     #[serde(rename = "messageStop")]
     MessageStop {
         #[serde(skip_serializing_if = "Option::is_none")]

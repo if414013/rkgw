@@ -99,7 +99,7 @@ pub struct ChatCompletionRequest {
     pub messages: Vec<ChatMessage>,
     #[serde(default)]
     pub stream: bool,
-    
+
     // Generation parameters
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
@@ -117,13 +117,13 @@ pub struct ChatCompletionRequest {
     pub presence_penalty: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f32>,
-    
+
     // Tools (function calling)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<serde_json::Value>,
-    
+
     // Compatibility fields (ignored but accepted)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<HashMap<String, serde_json::Value>>,

@@ -8,10 +8,10 @@
 // - kiro_to_openai: Kiro → OpenAI conversion
 // - kiro_to_anthropic: Kiro → Anthropic conversion
 
-pub mod core;
-pub mod openai_to_kiro;
 pub mod anthropic_to_kiro;
-pub mod kiro_to_openai;
+pub mod core;
 pub mod kiro_to_anthropic;
+pub mod kiro_to_openai;
+pub mod openai_to_kiro;
 
 // Re-export main conversion functions

@@ -5,13 +5,13 @@
 
 use axum::{
     body::Body,
-    http::{Request, StatusCode, header},
+    http::{header, Request, StatusCode},
     Router,
 };
-use tower::ServiceExt;
 use serde_json::{json, Value};
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tower::ServiceExt;
 
 use kiro_gateway::{
     auth::AuthManager,
@@ -177,7 +177,10 @@ async fn test_openai_models_without_auth() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let body = parse_json_body(response.into_body()).await;
-    assert!(body["error"]["message"].as_str().unwrap().contains("API Key"));
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("API Key"));
 }
 
 #[tokio::test]
@@ -200,7 +203,10 @@ async fn test_openai_models_with_invalid_auth() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     let body = parse_json_body(response.into_body()).await;
-    assert!(body["error"]["message"].as_str().unwrap().contains("Invalid"));
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid"));
 }
 
 #[tokio::test]
@@ -225,10 +231,10 @@ async fn test_openai_models_with_valid_auth() {
     let body = parse_json_body(response.into_body()).await;
     assert_eq!(body["object"], "list");
     assert!(body["data"].is_array());
-    
+
     let models = body["data"].as_array().unwrap();
     assert_eq!(models.len(), 3);
-    
+
     // Verify model structure
     for model in models {
         assert_eq!(model["object"], "model");
@@ -511,8 +517,7 @@ async fn test_unknown_endpoint_without_auth() {
 
     // Either 401 (auth required) or 404 (not found) is acceptable
     assert!(
-        response.status() == StatusCode::UNAUTHORIZED
-            || response.status() == StatusCode::NOT_FOUND
+        response.status() == StatusCode::UNAUTHORIZED || response.status() == StatusCode::NOT_FOUND
     );
 }
 
@@ -561,11 +566,8 @@ async fn test_model_list_contains_expected_models() {
 
     let body = parse_json_body(response.into_body()).await;
     let models = body["data"].as_array().unwrap();
-    
-    let model_ids: Vec<&str> = models
-        .iter()
-        .map(|m| m["id"].as_str().unwrap())
-        .collect();
+
+    let model_ids: Vec<&str> = models.iter().map(|m| m["id"].as_str().unwrap()).collect();
 
     assert!(model_ids.contains(&"claude-sonnet-4"));
     assert!(model_ids.contains(&"claude-haiku-4"));

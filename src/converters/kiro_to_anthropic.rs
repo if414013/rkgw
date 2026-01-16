@@ -12,7 +12,10 @@ use crate::models::kiro::KiroResponse;
 
 /// Generates a unique message ID in Anthropic format.
 fn generate_message_id() -> String {
-    format!("msg_{}", Uuid::new_v4().simple().to_string()[..24].to_string())
+    format!(
+        "msg_{}",
+        Uuid::new_v4().simple().to_string()[..24].to_string()
+    )
 }
 
 /// Converts Kiro response to Anthropic MessagesResponse.
@@ -32,9 +35,7 @@ pub fn convert_kiro_to_anthropic_response(
         match block {
             crate::models::kiro::ContentBlock::Text { text } => {
                 if !text.is_empty() {
-                    content_blocks.push(ContentBlock::Text {
-                        text: text.clone(),
-                    });
+                    content_blocks.push(ContentBlock::Text { text: text.clone() });
                 }
             }
         }
@@ -107,13 +108,13 @@ mod tests {
         assert_eq!(response.model, "claude-sonnet-4");
         assert_eq!(response.role, "assistant");
         assert_eq!(response.content.len(), 1);
-        
+
         if let ContentBlock::Text { text } = &response.content[0] {
             assert_eq!(text, "Hello, world!");
         } else {
             panic!("Expected text content block");
         }
-        
+
         assert_eq!(response.stop_reason, Some("end_turn".to_string()));
     }
 
@@ -137,23 +138,26 @@ mod tests {
         let response = convert_kiro_to_anthropic_response(&kiro_response, "claude-sonnet-4");
 
         assert_eq!(response.content.len(), 2);
-        
+
         // First block should be text
         if let ContentBlock::Text { text } = &response.content[0] {
             assert_eq!(text, "Let me check that.");
         } else {
             panic!("Expected text content block");
         }
-        
+
         // Second block should be tool_use
         if let ContentBlock::ToolUse { id, name, input } = &response.content[1] {
             assert_eq!(id, "toolu_abc123");
             assert_eq!(name, "get_weather");
-            assert_eq!(input.get("location").and_then(|v| v.as_str()), Some("San Francisco"));
+            assert_eq!(
+                input.get("location").and_then(|v| v.as_str()),
+                Some("San Francisco")
+            );
         } else {
             panic!("Expected tool_use content block");
         }
-        
+
         assert_eq!(response.stop_reason, Some("tool_use".to_string()));
     }
 

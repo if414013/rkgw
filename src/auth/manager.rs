@@ -16,22 +16,22 @@ use super::types::{AuthType, Credentials};
 pub struct AuthManager {
     /// Current credentials
     credentials: Arc<RwLock<Credentials>>,
-    
+
     /// Current access token
     access_token: Arc<RwLock<Option<String>>>,
-    
+
     /// Token expiration time
     expires_at: Arc<RwLock<Option<DateTime<Utc>>>>,
-    
+
     /// Authentication type
     auth_type: AuthType,
-    
+
     /// HTTP client for refresh requests
     client: Client,
-    
+
     /// Path to SQLite database (for reload on 400 error)
     sqlite_db: Option<PathBuf>,
-    
+
     /// Token refresh threshold in seconds (default: 300 = 5 minutes)
     refresh_threshold: i64,
 }
@@ -76,10 +76,7 @@ impl AuthManager {
     }
 
     /// Create a new AuthManager from SQLite database
-    pub fn new(
-        sqlite_db: PathBuf,
-        refresh_threshold: u64,
-    ) -> Result<Self> {
+    pub fn new(sqlite_db: PathBuf, refresh_threshold: u64) -> Result<Self> {
         // Load credentials from SQLite database
         tracing::info!("Loading credentials from SQLite: {}", sqlite_db.display());
         let credentials = credentials::load_from_sqlite(&sqlite_db)?;
@@ -111,7 +108,7 @@ impl AuthManager {
     /// Check if token is expiring soon (within threshold)
     async fn is_token_expiring_soon(&self) -> bool {
         let expires_at = self.expires_at.read().await;
-        
+
         match *expires_at {
             None => true, // No expiration info, assume refresh needed
             Some(exp) => {
@@ -125,7 +122,7 @@ impl AuthManager {
     /// Check if token is actually expired (not just expiring soon)
     async fn is_token_expired(&self) -> bool {
         let expires_at = self.expires_at.read().await;
-        
+
         match *expires_at {
             None => true, // No expiration info, assume expired
             Some(exp) => Utc::now() >= exp,
@@ -179,26 +176,25 @@ impl AuthManager {
             // Attempt refresh
             if let Err(e) = self.refresh_token().await {
                 tracing::error!("Token refresh failed: {}", e);
-                
+
                 // Graceful degradation: if token isn't actually expired yet, use it
                 if !self.is_token_expired().await {
-                    tracing::warn!("Using existing token despite refresh failure (not yet expired)");
+                    tracing::warn!(
+                        "Using existing token despite refresh failure (not yet expired)"
+                    );
                     let token = self.access_token.read().await;
                     if let Some(ref t) = *token {
                         return Ok(t.clone());
                     }
                 }
-                
+
                 return Err(e).context("Failed to refresh token and no valid token available");
             }
         }
 
         // Return current token
         let token = self.access_token.read().await;
-        token
-            .as_ref()
-            .cloned()
-            .context("No access token available")
+        token.as_ref().cloned().context("No access token available")
     }
 
     /// Get the region

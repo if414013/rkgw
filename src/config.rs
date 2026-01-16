@@ -61,10 +61,10 @@ pub struct Config {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum FakeReasoningHandling {
-    AsReasoningContent,  // Extract to reasoning_content field (OpenAI-compatible)
-    Remove,              // Remove thinking block completely
-    Pass,                // Pass through with original tags
-    StripTags,           // Remove tags but keep content
+    AsReasoningContent, // Extract to reasoning_content field (OpenAI-compatible)
+    Remove,             // Remove thinking block completely
+    Pass,               // Pass through with original tags
+    StripTags,          // Remove tags but keep content
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -93,7 +93,11 @@ impl Config {
 
             server_port: args
                 .port
-                .or_else(|| std::env::var("SERVER_PORT").ok().and_then(|s| s.parse().ok()))
+                .or_else(|| {
+                    std::env::var("SERVER_PORT")
+                        .ok()
+                        .and_then(|s| s.parse().ok())
+                })
                 .unwrap_or(8000),
 
             // Authentication (required)
@@ -161,7 +165,9 @@ impl Config {
             // Fake reasoning - enabled by default (like Python)
             // FAKE_REASONING env var: empty/"true"/"1"/"yes" = enabled, "false"/"0"/"no"/"disabled"/"off" = disabled
             fake_reasoning_enabled: {
-                let raw = std::env::var("FAKE_REASONING").unwrap_or_default().to_lowercase();
+                let raw = std::env::var("FAKE_REASONING")
+                    .unwrap_or_default()
+                    .to_lowercase();
                 // Default is true - only disable if explicitly set to false/0/no/disabled/off
                 !matches!(raw.as_str(), "false" | "0" | "no" | "disabled" | "off")
             },
@@ -172,7 +178,7 @@ impl Config {
                 .unwrap_or(4000),
 
             fake_reasoning_handling: parse_fake_reasoning_handling(
-                &std::env::var("FAKE_REASONING_HANDLING").unwrap_or_default()
+                &std::env::var("FAKE_REASONING_HANDLING").unwrap_or_default(),
             ),
         };
 

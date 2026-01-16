@@ -30,7 +30,11 @@ fn extract_tool_results_from_openai(content: &MessageContent) -> Vec<ToolResult>
 
     if let MessageContent::Blocks(blocks) = content {
         for block in blocks {
-            if let ContentBlock::ToolResult { tool_use_id, content } = block {
+            if let ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+            } = block
+            {
                 tool_results.push(ToolResult {
                     result_type: "tool_result".to_string(),
                     tool_use_id: tool_use_id.clone(),
@@ -284,7 +288,8 @@ pub fn build_kiro_payload_core(
     config: &Config,
 ) -> Result<KiroPayloadResult, String> {
     // Process tools with long descriptions
-    let (processed_tools, tool_documentation) = process_tools_with_long_descriptions(tools.clone(), config);
+    let (processed_tools, tool_documentation) =
+        process_tools_with_long_descriptions(tools.clone(), config);
 
     // Add tool documentation to system prompt if present
     let mut full_system_prompt = system_prompt;
@@ -298,7 +303,10 @@ pub fn build_kiro_payload_core(
             full_system_prompt = tool_documentation.trim().to_string();
         }
     }
-    debug!("After tool documentation, full_system_prompt length: {}", full_system_prompt.len());
+    debug!(
+        "After tool documentation, full_system_prompt length: {}",
+        full_system_prompt.len()
+    );
 
     // Add thinking mode legitimization to system prompt if enabled
     let thinking_system_addition = get_thinking_system_prompt_addition(config);
@@ -309,7 +317,10 @@ pub fn build_kiro_payload_core(
             full_system_prompt = thinking_system_addition.trim().to_string();
         }
     }
-    debug!("After thinking addition, full_system_prompt length: {}", full_system_prompt.len());
+    debug!(
+        "After thinking addition, full_system_prompt length: {}",
+        full_system_prompt.len()
+    );
 
     // If no tools are defined, strip ALL tool-related content from messages
     // Kiro API rejects requests with toolResults but no tools
@@ -336,18 +347,24 @@ pub fn build_kiro_payload_core(
 
     // If there's a system prompt, add it to the first user message in history
     let mut history_messages_vec = history_messages.to_vec();
-    debug!("History messages count: {}, first role: {:?}",
-           history_messages_vec.len(),
-           history_messages_vec.first().map(|m| &m.role));
+    debug!(
+        "History messages count: {}, first role: {:?}",
+        history_messages_vec.len(),
+        history_messages_vec.first().map(|m| &m.role)
+    );
     if !full_system_prompt.is_empty() && !history_messages_vec.is_empty() {
         if history_messages_vec[0].role == "user" {
             let original_content = extract_text_content(&history_messages_vec[0].content);
-            debug!("Adding system prompt to first history message (original content: {} chars)", original_content.len());
-            history_messages_vec[0].content = MessageContent::Text(format!(
-                "{}\n\n{}",
-                full_system_prompt, original_content
-            ));
-            debug!("First history message now has {} chars", extract_text_content(&history_messages_vec[0].content).len());
+            debug!(
+                "Adding system prompt to first history message (original content: {} chars)",
+                original_content.len()
+            );
+            history_messages_vec[0].content =
+                MessageContent::Text(format!("{}\n\n{}", full_system_prompt, original_content));
+            debug!(
+                "First history message now has {} chars",
+                extract_text_content(&history_messages_vec[0].content).len()
+            );
         } else {
             debug!("First history message is not user role, skipping system prompt injection to history");
         }
@@ -358,15 +375,27 @@ pub fn build_kiro_payload_core(
     // Current message (the last one)
     let current_message = &merged_messages[merged_messages.len() - 1];
     let mut current_content = extract_text_content(&current_message.content);
-    debug!("Current content length before system prompt: {}", current_content.len());
+    debug!(
+        "Current content length before system prompt: {}",
+        current_content.len()
+    );
 
     // If system prompt exists but history is empty - add to current message
-    debug!("Checking system prompt injection: full_system_prompt.is_empty()={}, history.is_empty()={}",
-           full_system_prompt.is_empty(), history.is_empty());
+    debug!(
+        "Checking system prompt injection: full_system_prompt.is_empty()={}, history.is_empty()={}",
+        full_system_prompt.is_empty(),
+        history.is_empty()
+    );
     if !full_system_prompt.is_empty() && history.is_empty() {
-        debug!("Adding system prompt ({} chars) to current message", full_system_prompt.len());
+        debug!(
+            "Adding system prompt ({} chars) to current message",
+            full_system_prompt.len()
+        );
         current_content = format!("{}\n\n{}", full_system_prompt, current_content);
-        debug!("Current content length after system prompt: {}", current_content.len());
+        debug!(
+            "Current content length after system prompt: {}",
+            current_content.len()
+        );
     }
 
     // If current message is assistant, add it to history and create "Continue" message
@@ -442,7 +471,10 @@ pub fn build_kiro_payload_core(
     }
 
     // Add user_input_context if present
-    if user_input_context.as_object().map_or(false, |o| !o.is_empty()) {
+    if user_input_context
+        .as_object()
+        .map_or(false, |o| !o.is_empty())
+    {
         user_input_message["userInputMessageContext"] = user_input_context;
     }
 
@@ -476,7 +508,7 @@ pub fn build_kiro_payload_core(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::openai::{ToolFunction, FunctionCall, ToolCall};
+    use crate::models::openai::{FunctionCall, ToolCall, ToolFunction};
     use serde_json::json;
 
     fn create_test_config() -> Config {
@@ -544,13 +576,13 @@ mod tests {
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name, "get_weather");
     }
-    
+
     #[test]
     fn test_convert_openai_tools_none() {
         let unified = convert_openai_tools_to_unified(&None);
         assert!(unified.is_none());
     }
-    
+
     #[test]
     fn test_convert_openai_tools_empty() {
         let unified = convert_openai_tools_to_unified(&Some(vec![]));
@@ -558,7 +590,7 @@ mod tests {
         assert!(unified.is_some());
         assert!(unified.unwrap().is_empty());
     }
-    
+
     #[test]
     fn test_convert_openai_messages_multiple_system() {
         let messages = vec![
@@ -591,7 +623,7 @@ mod tests {
         assert!(system_prompt.contains("Second system message"));
         assert_eq!(unified.len(), 1);
     }
-    
+
     #[test]
     fn test_convert_openai_messages_with_tool_calls() {
         let messages = vec![
@@ -625,58 +657,52 @@ mod tests {
         assert_eq!(tool_calls.len(), 1);
         assert_eq!(tool_calls[0].function.name, "get_weather");
     }
-    
+
     #[test]
     fn test_convert_openai_messages_with_tool_result() {
-        let messages = vec![
-            ChatMessage {
-                role: "tool".to_string(),
-                content: Some(json!("Sunny, 72°F")),
-                name: None,
-                tool_calls: None,
-                tool_call_id: Some("call_123".to_string()),
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "tool".to_string(),
+            content: Some(json!("Sunny, 72°F")),
+            name: None,
+            tool_calls: None,
+            tool_call_id: Some("call_123".to_string()),
+        }];
 
         let (_, unified) = convert_openai_messages_to_unified(&messages);
         assert_eq!(unified.len(), 1);
         assert_eq!(unified[0].role, "user"); // tool messages become user messages
         assert!(unified[0].tool_results.is_some());
     }
-    
+
     #[test]
     fn test_convert_openai_messages_content_array() {
-        let messages = vec![
-            ChatMessage {
-                role: "user".to_string(),
-                content: Some(json!([
-                    {"type": "text", "text": "Hello"},
-                    {"type": "text", "text": " World"}
-                ])),
-                name: None,
-                tool_calls: None,
-                tool_call_id: None,
-            },
-        ];
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: Some(json!([
+                {"type": "text", "text": "Hello"},
+                {"type": "text", "text": " World"}
+            ])),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }];
 
         let (_, unified) = convert_openai_messages_to_unified(&messages);
         assert_eq!(unified.len(), 1);
     }
-    
+
     #[test]
     fn test_build_kiro_payload_basic() {
         let config = create_test_config();
         let request = ChatCompletionRequest {
             model: "claude-sonnet-4".to_string(),
-            messages: vec![
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: Some(json!("Hello!")),
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                },
-            ],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(json!("Hello!")),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
             stream: false,
             temperature: None,
             top_p: None,
@@ -696,17 +722,23 @@ mod tests {
             seed: None,
             parallel_tool_calls: None,
         };
-        
+
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
         assert!(result.is_ok());
-        
+
         let payload_result = result.unwrap();
         let payload = payload_result.payload;
-        
-        assert!(payload["conversationState"]["conversationId"].as_str().is_some());
-        assert!(payload["conversationState"]["currentMessage"]["userInputMessage"]["content"].as_str().is_some());
+
+        assert!(payload["conversationState"]["conversationId"]
+            .as_str()
+            .is_some());
+        assert!(
+            payload["conversationState"]["currentMessage"]["userInputMessage"]["content"]
+                .as_str()
+                .is_some()
+        );
     }
-    
+
     #[test]
     fn test_build_kiro_payload_with_system() {
         let config = create_test_config();
@@ -747,32 +779,32 @@ mod tests {
             seed: None,
             parallel_tool_calls: None,
         };
-        
+
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
         assert!(result.is_ok());
-        
+
         let payload_result = result.unwrap();
         let payload = payload_result.payload;
-        
+
         // System prompt should be included in the content
-        let content = payload["conversationState"]["currentMessage"]["userInputMessage"]["content"].as_str().unwrap();
+        let content = payload["conversationState"]["currentMessage"]["userInputMessage"]["content"]
+            .as_str()
+            .unwrap();
         assert!(content.contains("You are helpful"));
     }
-    
+
     #[test]
     fn test_build_kiro_payload_with_tools() {
         let config = create_test_config();
         let request = ChatCompletionRequest {
             model: "claude-sonnet-4".to_string(),
-            messages: vec![
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: Some(json!("What's the weather?")),
-                    name: None,
-                    tool_calls: None,
-                    tool_call_id: None,
-                },
-            ],
+            messages: vec![ChatMessage {
+                role: "user".to_string(),
+                content: Some(json!("What's the weather?")),
+                name: None,
+                tool_calls: None,
+                tool_call_id: None,
+            }],
             stream: false,
             temperature: None,
             top_p: None,
@@ -804,19 +836,20 @@ mod tests {
             seed: None,
             parallel_tool_calls: None,
         };
-        
+
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
         assert!(result.is_ok());
-        
+
         let payload_result = result.unwrap();
         let payload = payload_result.payload;
-        
+
         // Tools should be in userInputMessageContext
-        let tools = &payload["conversationState"]["currentMessage"]["userInputMessage"]["userInputMessageContext"]["tools"];
+        let tools = &payload["conversationState"]["currentMessage"]["userInputMessage"]
+            ["userInputMessageContext"]["tools"];
         assert!(tools.is_array());
         assert_eq!(tools.as_array().unwrap().len(), 1);
     }
-    
+
     #[test]
     fn test_build_kiro_payload_empty_messages() {
         let config = create_test_config();
@@ -842,7 +875,7 @@ mod tests {
             seed: None,
             parallel_tool_calls: None,
         };
-        
+
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
         assert!(result.is_err());
     }

@@ -12,13 +12,13 @@ use crate::error::ApiError;
 pub struct KiroHttpClient {
     /// Shared HTTP client with connection pooling
     client: Client,
-    
+
     /// Authentication manager
     auth_manager: Arc<AuthManager>,
-    
+
     /// Maximum number of retries
     max_retries: u32,
-    
+
     /// Base delay for exponential backoff (milliseconds)
     base_delay_ms: u64,
 }
@@ -63,14 +63,19 @@ impl KiroHttpClient {
     }
 
     /// Internal method that handles retry logic
-    async fn request_with_retry_internal(&self, mut request: Request, enable_retry: bool) -> Result<Response, ApiError> {
+    async fn request_with_retry_internal(
+        &self,
+        mut request: Request,
+        enable_retry: bool,
+    ) -> Result<Response, ApiError> {
         let max_retries = if enable_retry { self.max_retries } else { 0 };
         let mut attempt = 0;
 
         loop {
             // Clone the request for this attempt
-            let req = request.try_clone()
-                .ok_or_else(|| ApiError::Internal(anyhow::anyhow!("Request body is not cloneable")))?;
+            let req = request.try_clone().ok_or_else(|| {
+                ApiError::Internal(anyhow::anyhow!("Request body is not cloneable"))
+            })?;
 
             // Execute request
             let result = self.client.execute(req).await;
@@ -90,15 +95,21 @@ impl KiroHttpClient {
                         403 => {
                             if attempt < max_retries {
                                 tracing::warn!("Received 403, refreshing token and retrying...");
-                                
+
                                 // Refresh token
                                 if let Err(e) = self.auth_manager.get_access_token().await {
                                     tracing::error!("Token refresh failed: {}", e);
-                                    return Err(ApiError::AuthError(format!("Token refresh failed: {}", e)));
+                                    return Err(ApiError::AuthError(format!(
+                                        "Token refresh failed: {}",
+                                        e
+                                    )));
                                 }
 
                                 // Update Authorization header in request
-                                let token = self.auth_manager.get_access_token().await
+                                let token = self
+                                    .auth_manager
+                                    .get_access_token()
+                                    .await
                                     .map_err(|e| ApiError::AuthError(e.to_string()))?;
                                 request.headers_mut().insert(
                                     "Authorization",
@@ -121,7 +132,7 @@ impl KiroHttpClient {
                                     attempt + 1,
                                     max_retries
                                 );
-                                
+
                                 tokio::time::sleep(Duration::from_millis(delay)).await;
                                 attempt += 1;
                                 continue;
@@ -150,13 +161,16 @@ impl KiroHttpClient {
                             attempt + 1,
                             max_retries
                         );
-                        
+
                         tokio::time::sleep(Duration::from_millis(delay)).await;
                         attempt += 1;
                         continue;
                     }
 
-                    return Err(ApiError::Internal(anyhow::anyhow!("HTTP request failed: {}", e)));
+                    return Err(ApiError::Internal(anyhow::anyhow!(
+                        "HTTP request failed: {}",
+                        e
+                    )));
                 }
             }
         }
@@ -197,12 +211,8 @@ mod tests {
     #[test]
     fn test_backoff_calculation() {
         let auth_manager = Arc::new(
-            AuthManager::new_for_testing(
-                "test-token".to_string(),
-                "us-east-1".to_string(),
-                300,
-            )
-            .unwrap(),
+            AuthManager::new_for_testing("test-token".to_string(), "us-east-1".to_string(), 300)
+                .unwrap(),
         );
 
         let client = KiroHttpClient::new(auth_manager, 20, 30, 300, 3).unwrap();
