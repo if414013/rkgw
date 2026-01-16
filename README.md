@@ -56,6 +56,22 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 ---
 
+## 🏗️ Architecture
+
+For detailed architecture documentation including component diagrams, data flows, and implementation details, see:
+
+**[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+
+The architecture documentation covers:
+- High-level system architecture with Mermaid diagrams
+- Request flow sequence diagrams
+- Deep dives into all 14 components
+- Authentication flow and token management
+- Streaming pipeline and thinking parser state machine
+- Converter architecture for OpenAI/Anthropic format translation
+
+---
+
 ## 🚀 Quick Start
 
 ### Prerequisites
