@@ -296,10 +296,10 @@ flowchart LR
         HIDDEN[Hidden Models]
     end
 
-    API[Kiro API] --> |update()| CACHE
-    STARTUP[Startup] --> |add_hidden_model()| HIDDEN
-    RESOLVER[Resolver] --> |is_valid_model()| CACHE
-    ROUTES[Routes] --> |get_all_model_ids()| CACHE
+    API[Kiro API] --> |update| CACHE
+    STARTUP[Startup] --> |add_hidden_model| HIDDEN
+    RESOLVER[Resolver] --> |is_valid_model| CACHE
+    ROUTES[Routes] --> |get_all_model_ids| CACHE
 ```
 
 **Key Types:**
