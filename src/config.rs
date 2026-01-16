@@ -10,16 +10,52 @@ use std::path::PathBuf;
 #[command(author, version, about, long_about = None)]
 pub struct CliArgs {
     /// Server host address
-    #[arg(short = 'H', long, env = "SERVER_HOST")]
-    pub host: Option<String>,
+    #[arg(short = 'H', long, env = "SERVER_HOST", default_value = "0.0.0.0")]
+    pub host: String,
 
     /// Server port
-    #[arg(short, long, env = "SERVER_PORT")]
-    pub port: Option<u16>,
+    #[arg(short, long, env = "SERVER_PORT", default_value = "8000")]
+    pub port: u16,
+
+    /// Proxy API key for client authentication
+    #[arg(short = 'k', long, env = "PROXY_API_KEY")]
+    pub api_key: Option<String>,
+
+    /// Path to kiro-cli SQLite database
+    #[arg(short = 'd', long, env = "KIRO_CLI_DB_FILE")]
+    pub db_file: Option<String>,
+
+    /// AWS region for Kiro API
+    #[arg(short = 'r', long, env = "KIRO_REGION", default_value = "us-east-1")]
+    pub region: String,
 
     /// Log level (trace, debug, info, warn, error)
-    #[arg(long, env = "LOG_LEVEL")]
-    pub log_level: Option<String>,
+    #[arg(long, env = "LOG_LEVEL", default_value = "info")]
+    pub log_level: String,
+
+    /// Debug mode (off, errors, all)
+    #[arg(long, env = "DEBUG_MODE", default_value = "off")]
+    pub debug_mode: String,
+
+    /// Enable fake reasoning/extended thinking
+    #[arg(long, env = "FAKE_REASONING", default_value = "true")]
+    pub fake_reasoning: bool,
+
+    /// Max tokens for fake reasoning
+    #[arg(long, env = "FAKE_REASONING_MAX_TOKENS", default_value = "4000")]
+    pub fake_reasoning_max_tokens: u32,
+
+    /// First token timeout in seconds
+    #[arg(long, env = "FIRST_TOKEN_TIMEOUT", default_value = "15")]
+    pub first_token_timeout: u64,
+
+    /// HTTP request timeout in seconds
+    #[arg(long, env = "HTTP_REQUEST_TIMEOUT", default_value = "300")]
+    pub http_timeout: u64,
+
+    /// HTTP max retries
+    #[arg(long, env = "HTTP_MAX_RETRIES", default_value = "3")]
+    pub http_retries: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -85,31 +121,24 @@ impl Config {
 
         // Build config with priority handling
         let config = Config {
-            // Server settings (CLI > ENV > default)
-            server_host: args
-                .host
-                .or_else(|| std::env::var("SERVER_HOST").ok())
-                .unwrap_or_else(|| "0.0.0.0".to_string()),
+            // Server settings (from CLI with defaults)
+            server_host: args.host,
+            server_port: args.port,
 
-            server_port: args
-                .port
-                .or_else(|| {
-                    std::env::var("SERVER_PORT")
-                        .ok()
-                        .and_then(|s| s.parse().ok())
-                })
-                .unwrap_or(8000),
-
-            // Authentication (required)
-            proxy_api_key: std::env::var("PROXY_API_KEY")
-                .context("PROXY_API_KEY environment variable is required")?,
+            // Authentication (CLI > ENV, required)
+            proxy_api_key: args
+                .api_key
+                .or_else(|| std::env::var("PROXY_API_KEY").ok())
+                .context("PROXY_API_KEY is required (use -k or set PROXY_API_KEY env var)")?,
 
             // Kiro credentials
-            kiro_region: std::env::var("KIRO_REGION").unwrap_or_else(|_| "us-east-1".to_string()),
+            kiro_region: args.region,
 
-            kiro_cli_db_file: std::env::var("KIRO_CLI_DB_FILE")
+            kiro_cli_db_file: args
+                .db_file
                 .map(|s| expand_tilde(&s))
-                .context("KIRO_CLI_DB_FILE environment variable is required")?,
+                .or_else(|| std::env::var("KIRO_CLI_DB_FILE").ok().map(|s| expand_tilde(&s)))
+                .context("KIRO_CLI_DB_FILE is required (use -d or set KIRO_CLI_DB_FILE env var)")?,
 
             // Timeouts
             streaming_timeout: std::env::var("STREAMING_READ_TIMEOUT")
@@ -122,10 +151,7 @@ impl Config {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(300),
 
-            first_token_timeout: std::env::var("FIRST_TOKEN_TIMEOUT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(15),
+            first_token_timeout: args.first_token_timeout,
 
             // HTTP client
             http_max_connections: std::env::var("HTTP_MAX_CONNECTIONS")
@@ -138,23 +164,14 @@ impl Config {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(30),
 
-            http_request_timeout: std::env::var("HTTP_REQUEST_TIMEOUT")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(300),
+            http_request_timeout: args.http_timeout,
 
-            http_max_retries: std::env::var("HTTP_MAX_RETRIES")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(3),
+            http_max_retries: args.http_retries,
 
             // Debug
-            debug_mode: parse_debug_mode(&std::env::var("DEBUG_MODE").unwrap_or_default()),
+            debug_mode: parse_debug_mode(&args.debug_mode),
 
-            log_level: args
-                .log_level
-                .or_else(|| std::env::var("LOG_LEVEL").ok())
-                .unwrap_or_else(|| "info".to_string()),
+            log_level: args.log_level,
 
             // Converter settings
             tool_description_max_length: std::env::var("TOOL_DESCRIPTION_MAX_LENGTH")
@@ -162,20 +179,9 @@ impl Config {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(10000),
 
-            // Fake reasoning - enabled by default (like Python)
-            // FAKE_REASONING env var: empty/"true"/"1"/"yes" = enabled, "false"/"0"/"no"/"disabled"/"off" = disabled
-            fake_reasoning_enabled: {
-                let raw = std::env::var("FAKE_REASONING")
-                    .unwrap_or_default()
-                    .to_lowercase();
-                // Default is true - only disable if explicitly set to false/0/no/disabled/off
-                !matches!(raw.as_str(), "false" | "0" | "no" | "disabled" | "off")
-            },
+            fake_reasoning_enabled: args.fake_reasoning,
 
-            fake_reasoning_max_tokens: std::env::var("FAKE_REASONING_MAX_TOKENS")
-                .ok()
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(4000),
+            fake_reasoning_max_tokens: args.fake_reasoning_max_tokens,
 
             fake_reasoning_handling: parse_fake_reasoning_handling(
                 &std::env::var("FAKE_REASONING_HANDLING").unwrap_or_default(),

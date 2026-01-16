@@ -28,7 +28,7 @@ use crate::middleware::DEBUG_LOGGER;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
 use crate::resolver::ModelResolver;
-use crate::tokenizer::count_anthropic_message_tokens;
+use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
 
 /// Application version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -214,6 +214,10 @@ async fn chat_completions_handler(
     // Execute request with retry logic
     let response = state.http_client.request_with_retry(req).await?;
 
+    // Calculate input tokens from request
+    let input_tokens = count_message_tokens(&request.messages, false)
+        + count_tools_tokens(request.tools.as_ref(), false);
+
     // Handle streaming vs non-streaming
     if request.stream {
         // Streaming response
@@ -224,6 +228,7 @@ async fn chat_completions_handler(
             response,
             &request.model,
             15, // first_token_timeout_secs
+            input_tokens,
         )
         .await?;
 
@@ -259,6 +264,7 @@ async fn chat_completions_handler(
             response,
             &request.model,
             first_token_timeout,
+            input_tokens,
         )
         .await?;
 

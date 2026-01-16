@@ -879,4 +879,413 @@ mod tests {
         let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
         assert!(result.is_err());
     }
+
+    // ==================================================================================================
+    // Compaction Scenario Tests (Issue #20)
+    //
+    // Issue #20: OpenCode compaction returns 400 "Improperly formed request"
+    // because it sends tool_calls/tool_results in history but WITHOUT tools definitions.
+    // ==================================================================================================
+
+    #[test]
+    fn test_compaction_without_tools_converts_tool_content_to_text() {
+        // Simulates OpenCode compaction scenario - messages with tool content but no tools.
+        // Purpose: Ensure build_kiro_payload doesn't crash and converts tool content to text.
+        let config = create_test_config();
+
+        let request = ChatCompletionRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Read the file test.py")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some(json!("I'll read that file for you.")),
+                    name: None,
+                    tool_calls: Some(vec![ToolCall {
+                        id: "call_read_123".to_string(),
+                        tool_type: "function".to_string(),
+                        function: FunctionCall {
+                            name: "Read".to_string(),
+                            arguments: r#"{"file_path": "test.py"}"#.to_string(),
+                        },
+                    }]),
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(json!("def hello():\n    print('Hello, World!')")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_read_123".to_string()),
+                },
+                ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some(json!("The file contains a simple hello function.")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Thanks! Now summarize what we did.")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            ],
+            stream: false,
+            temperature: None,
+            top_p: None,
+            n: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None, // NO TOOLS - this is the compaction scenario
+            tool_choice: None,
+            stream_options: None,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            user: None,
+            seed: None,
+            parallel_tool_calls: None,
+        };
+
+        let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
+
+        // Should succeed without error
+        assert!(result.is_ok(), "Compaction scenario should not fail");
+
+        let payload_result = result.unwrap();
+        let payload = payload_result.payload;
+
+        // Verify the payload was built successfully
+        assert!(payload["conversationState"]["conversationId"]
+            .as_str()
+            .is_some());
+
+        // Verify history exists and tool content was converted to text
+        let history = payload["conversationState"]["history"].as_array();
+        assert!(history.is_some(), "History should exist");
+
+        // Check that tool calls were converted to text in assistant message
+        let history_arr = history.unwrap();
+        let mut found_tool_text = false;
+        for msg in history_arr {
+            if let Some(assistant_msg) = msg.get("assistantResponseMessage") {
+                let content = assistant_msg["content"].as_str().unwrap_or("");
+                if content.contains("[Tool: Read") {
+                    found_tool_text = true;
+                }
+            }
+        }
+        assert!(
+            found_tool_text,
+            "Tool calls should be converted to text representation"
+        );
+    }
+
+    #[test]
+    fn test_compaction_preserves_tool_result_content_as_text() {
+        // Verifies that tool result content is preserved as text during compaction.
+        // Purpose: Ensure the actual tool output is not lost during compaction.
+        let config = create_test_config();
+
+        let important_data = "IMPORTANT_DATA_12345";
+
+        let request = ChatCompletionRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Get the data")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some(json!("Fetching data...")),
+                    name: None,
+                    tool_calls: Some(vec![ToolCall {
+                        id: "call_data_456".to_string(),
+                        tool_type: "function".to_string(),
+                        function: FunctionCall {
+                            name: "fetch_data".to_string(),
+                            arguments: r#"{}"#.to_string(),
+                        },
+                    }]),
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(json!(important_data)),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_data_456".to_string()),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("What was the result?")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            ],
+            stream: false,
+            temperature: None,
+            top_p: None,
+            n: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None, // NO TOOLS - compaction scenario
+            tool_choice: None,
+            stream_options: None,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            user: None,
+            seed: None,
+            parallel_tool_calls: None,
+        };
+
+        let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
+        assert!(result.is_ok(), "Should handle compaction without error");
+
+        let payload_result = result.unwrap();
+        let payload = payload_result.payload;
+
+        // Verify the important data is preserved somewhere in the payload
+        let payload_str = payload.to_string();
+        assert!(
+            payload_str.contains(important_data),
+            "Tool result content should be preserved as text: {}",
+            payload_str
+        );
+    }
+
+    #[test]
+    fn test_compaction_multiple_tool_only_messages() {
+        // Simulates the OpenCode compaction scenario from issue #20 where multiple
+        // tool-only messages are sent without text content.
+        let config = create_test_config();
+
+        let request = ChatCompletionRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Help me with files")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                // Assistant with only tool_calls, no text
+                ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some(json!("")),
+                    name: None,
+                    tool_calls: Some(vec![
+                        ToolCall {
+                            id: "call_1".to_string(),
+                            tool_type: "function".to_string(),
+                            function: FunctionCall {
+                                name: "Read".to_string(),
+                                arguments: r#"{"file_path": "a.txt"}"#.to_string(),
+                            },
+                        },
+                        ToolCall {
+                            id: "call_2".to_string(),
+                            tool_type: "function".to_string(),
+                            function: FunctionCall {
+                                name: "Read".to_string(),
+                                arguments: r#"{"file_path": "b.txt"}"#.to_string(),
+                            },
+                        },
+                    ]),
+                    tool_call_id: None,
+                },
+                // Tool results
+                ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(json!("Content of a.txt")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_1".to_string()),
+                },
+                ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(json!("Content of b.txt")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_2".to_string()),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Summarize")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            ],
+            stream: false,
+            temperature: None,
+            top_p: None,
+            n: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: None, // NO TOOLS
+            tool_choice: None,
+            stream_options: None,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            user: None,
+            seed: None,
+            parallel_tool_calls: None,
+        };
+
+        let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
+        assert!(
+            result.is_ok(),
+            "Multiple tool-only messages should be handled"
+        );
+
+        let payload_result = result.unwrap();
+        let payload = payload_result.payload;
+        let payload_str = payload.to_string();
+
+        // Verify both tool calls are converted to text
+        assert!(
+            payload_str.contains("[Tool: Read"),
+            "Tool calls should be in text form"
+        );
+        assert!(
+            payload_str.contains("a.txt"),
+            "First file path should be preserved"
+        );
+        assert!(
+            payload_str.contains("b.txt"),
+            "Second file path should be preserved"
+        );
+
+        // Verify tool results are converted to text
+        assert!(
+            payload_str.contains("Content of a.txt"),
+            "First tool result should be preserved"
+        );
+        assert!(
+            payload_str.contains("Content of b.txt"),
+            "Second tool result should be preserved"
+        );
+    }
+
+    #[test]
+    fn test_compaction_with_tools_keeps_tool_format() {
+        // When tools ARE defined, tool content should remain in proper format (not converted to text)
+        let config = create_test_config();
+
+        let request = ChatCompletionRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Read file")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some(json!("Reading...")),
+                    name: None,
+                    tool_calls: Some(vec![ToolCall {
+                        id: "call_read".to_string(),
+                        tool_type: "function".to_string(),
+                        function: FunctionCall {
+                            name: "Read".to_string(),
+                            arguments: r#"{"file_path": "test.txt"}"#.to_string(),
+                        },
+                    }]),
+                    tool_call_id: None,
+                },
+                ChatMessage {
+                    role: "tool".to_string(),
+                    content: Some(json!("File contents here")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: Some("call_read".to_string()),
+                },
+                ChatMessage {
+                    role: "user".to_string(),
+                    content: Some(json!("Thanks")),
+                    name: None,
+                    tool_calls: None,
+                    tool_call_id: None,
+                },
+            ],
+            stream: false,
+            temperature: None,
+            top_p: None,
+            n: None,
+            max_tokens: None,
+            max_completion_tokens: None,
+            stop: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            tools: Some(vec![Tool {
+                // Tools ARE defined
+                tool_type: "function".to_string(),
+                function: ToolFunction {
+                    name: "Read".to_string(),
+                    description: Some("Read a file".to_string()),
+                    parameters: Some(json!({"type": "object"})),
+                },
+            }]),
+            tool_choice: None,
+            stream_options: None,
+            logit_bias: None,
+            logprobs: None,
+            top_logprobs: None,
+            user: None,
+            seed: None,
+            parallel_tool_calls: None,
+        };
+
+        let result = build_kiro_payload(&request, "conv-123", "profile-arn", &config);
+        assert!(result.is_ok());
+
+        let payload_result = result.unwrap();
+        let payload = payload_result.payload;
+
+        // When tools are defined, toolUses should be in proper Kiro format
+        let history = payload["conversationState"]["history"].as_array().unwrap();
+
+        let mut found_tool_uses = false;
+        for msg in history {
+            if let Some(assistant_msg) = msg.get("assistantResponseMessage") {
+                if assistant_msg.get("toolUses").is_some() {
+                    found_tool_uses = true;
+                }
+            }
+        }
+        assert!(
+            found_tool_uses,
+            "When tools are defined, toolUses should be in proper format"
+        );
+    }
 }

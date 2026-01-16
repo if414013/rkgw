@@ -1535,6 +1535,7 @@ pub async fn stream_kiro_to_openai(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    input_tokens: i32,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let completion_id = generate_completion_id();
     let created_time = chrono::Utc::now().timestamp();
@@ -1681,9 +1682,10 @@ pub async fn stream_kiro_to_openai(
             completion_id_for_final,
             model_for_final,
             created_time,
+            input_tokens,
         )),
         move |state_opt| async move {
-            let (state_arc, completion_id, model, created_time) = state_opt?;
+            let (state_arc, completion_id, model, created_time, input_tokens) = state_opt?;
             let state = state_arc.lock().unwrap();
             let mut final_chunks = Vec::new();
 
@@ -1740,12 +1742,12 @@ pub async fn stream_kiro_to_openai(
                 "stop"
             };
 
-            // Calculate usage
+            // Calculate usage - use our calculated input_tokens, output from Kiro
             let usage_obj = if let Some(ref u) = state.usage {
                 Some(ChatCompletionUsage {
-                    prompt_tokens: u.input_tokens,
+                    prompt_tokens: input_tokens,
                     completion_tokens: u.output_tokens,
-                    total_tokens: u.input_tokens + u.output_tokens,
+                    total_tokens: input_tokens + u.output_tokens,
                     credits_used: None,
                 })
             } else {
@@ -2154,6 +2156,7 @@ pub async fn collect_openai_response(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    input_tokens: i32,
 ) -> Result<Value, ApiError> {
     use futures::StreamExt;
 
@@ -2237,18 +2240,18 @@ pub async fn collect_openai_response(
         "stop"
     };
 
-    // Build usage
+    // Build usage - use our calculated input_tokens, output from Kiro
     let usage_json = if let Some(u) = usage {
         serde_json::json!({
-            "prompt_tokens": u.input_tokens,
+            "prompt_tokens": input_tokens,
             "completion_tokens": u.output_tokens,
-            "total_tokens": u.input_tokens + u.output_tokens
+            "total_tokens": input_tokens + u.output_tokens
         })
     } else {
         serde_json::json!({
-            "prompt_tokens": 0,
+            "prompt_tokens": input_tokens,
             "completion_tokens": 0,
-            "total_tokens": 0
+            "total_tokens": input_tokens
         })
     };
 
