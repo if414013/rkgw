@@ -1,15 +1,3 @@
-// Thinking block parser for streaming responses
-//
-// Implements a finite state machine (FSM) for reliable parsing of thinking blocks
-// (<thinking>, <think>, <reasoning>, etc.) that may be split across multiple
-// network chunks.
-//
-// Key features:
-// - Tag detection ONLY at the start of response
-// - "Cautious" sending - buffers potential tag fragments to avoid splitting tags
-// - After closing tag - all content is treated as regular content
-// - Support for multiple tag formats
-
 /// Parser states
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ParserState {

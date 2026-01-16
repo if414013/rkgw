@@ -1,5 +1,3 @@
-// Authentication manager with token lifecycle management
-
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;

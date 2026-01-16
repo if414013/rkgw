@@ -1,6 +1,3 @@
-// Configuration module
-// Loads and validates configuration from CLI args, environment variables, and defaults
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use std::path::PathBuf;

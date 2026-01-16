@@ -1,6 +1,3 @@
-// HTTP routes module - Phase 6
-// Endpoint handlers for health, OpenAI, and Anthropic APIs
-
 use axum::{
     body::Body,
     extract::State,

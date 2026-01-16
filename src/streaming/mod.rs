@@ -1,6 +1,3 @@
-// Streaming module - Phase 5
-// SSE streaming for OpenAI and Anthropic formats
-
 use futures::stream::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

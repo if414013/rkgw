@@ -1,14 +1,3 @@
-// Debug logging middleware
-// Captures request/response data for debugging based on DEBUG_MODE setting
-//
-// Matches Python implementation behavior:
-// - request_body.json: Original request from client
-// - kiro_request_body.json: Transformed request to Kiro API
-// - response_stream_raw.txt: Raw response from Kiro API
-// - response_stream_modified.txt: Transformed response to client
-// - app_logs.txt: Application logs during request processing
-// - error_info.json: Error details (on errors only)
-
 #![allow(dead_code)]
 
 use axum::{
@@ -40,12 +29,11 @@ struct DebugRequestState {
     app_logs: Vec<String>,
 }
 
-/// Global debug logger instance (singleton pattern like Python)
+/// Global debug logger instance
 pub static DEBUG_LOGGER: Lazy<DebugLogger> = Lazy::new(|| DebugLogger::new());
 
 /// Debug logger for capturing request/response data
 ///
-/// Singleton pattern matching Python's debug_logger implementation.
 /// Supports three modes:
 /// - off: logging disabled
 /// - errors: logs are saved only on errors (4xx, 5xx)

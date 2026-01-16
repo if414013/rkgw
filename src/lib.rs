@@ -1,5 +1,3 @@
-// Kiro Gateway - Library root for testing
-
 pub mod auth;
 pub mod cache;
 pub mod config;

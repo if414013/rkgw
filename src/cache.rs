@@ -1,5 +1,3 @@
-// Model metadata cache
-
 use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::Arc;

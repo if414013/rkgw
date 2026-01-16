@@ -1,6 +1,3 @@
-// Kiro Gateway - Rust Implementation
-// Main entry point
-
 use anyhow::Result;
 use std::sync::Arc;
 

@@ -1,5 +1,3 @@
-// Token refresh logic
-
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
 use reqwest::Client;

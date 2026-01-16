@@ -881,9 +881,9 @@ mod tests {
     }
 
     // ==================================================================================================
-    // Compaction Scenario Tests (Issue #20)
+    // Compaction Scenario Tests
     //
-    // Issue #20: OpenCode compaction returns 400 "Improperly formed request"
+    // OpenCode compaction returns 400 "Improperly formed request"
     // because it sends tool_calls/tool_results in history but WITHOUT tools definitions.
     // ==================================================================================================
 
@@ -1077,7 +1077,7 @@ mod tests {
 
     #[test]
     fn test_compaction_multiple_tool_only_messages() {
-        // Simulates the OpenCode compaction scenario from issue #20 where multiple
+        // Simulates the OpenCode compaction scenario where multiple
         // tool-only messages are sent without text content.
         let config = create_test_config();
 

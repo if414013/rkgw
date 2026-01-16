@@ -1,5 +1,3 @@
-// Model name resolution and normalization
-
 use once_cell::sync::Lazy;
 use regex::Regex;
 use std::collections::HashMap;

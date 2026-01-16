@@ -1,13 +1,3 @@
-// Token counting module
-// Provides approximate token counting for Claude models
-//
-// Uses tiktoken-rs (cl100k_base) for accurate token counting, with an optional
-// correction factor for Claude models.
-//
-// The correction coefficient CLAUDE_CORRECTION_FACTOR = 1.15 is based on
-// empirical observations: Claude tokenizes text approximately 15%
-// more than GPT-4 (cl100k_base).
-
 use crate::models::anthropic::AnthropicTool;
 use crate::models::openai::{ChatMessage, Tool};
 use serde_json::Value;

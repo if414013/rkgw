@@ -1,5 +1,3 @@
-// OpenAI API data models
-
 #![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};

@@ -1,5 +1,3 @@
-// HTTP client with retry logic and connection pooling
-
 use anyhow::{Context, Result};
 use reqwest::{Client, Request, Response};
 use std::sync::Arc;

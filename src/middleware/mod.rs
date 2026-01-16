@@ -1,4 +1,3 @@
-// Middleware module - Phase 6
 // Authentication, CORS, and debug logging middleware
 
 pub mod debug;
@@ -16,46 +15,32 @@ pub use debug::DEBUG_LOGGER;
 ///
 /// Verifies the API key in the Authorization header or x-api-key header.
 /// Expects format: "Bearer {PROXY_API_KEY}" or just the key in x-api-key.
-///
-/// Requirements:
-/// - 16.1: Extract Authorization header
-/// - 16.2: Extract x-api-key header (if Authorization not present)
-/// - 16.3: Validate against PROXY_API_KEY
-/// - 16.4: Return 401 on failure
-/// - 16.5: Pass request to next handler on success
 pub async fn auth_middleware(
     State(state): State<AppState>,
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, ApiError> {
-    // Extract Authorization header (Requirement 16.1)
     if let Some(auth_header) = request.headers().get("authorization") {
         if let Ok(auth_str) = auth_header.to_str() {
             tracing::debug!("Received Authorization header: {}", auth_str);
-            // Validate against PROXY_API_KEY (Requirement 16.3)
             let expected = format!("Bearer {}", state.proxy_api_key);
             tracing::debug!("Expected: {}", expected);
             if auth_str == expected {
-                // Pass request to next handler on success (Requirement 16.5)
                 return Ok(next.run(request).await);
             }
         }
     }
 
-    // Extract x-api-key header (Requirement 16.2)
     if let Some(api_key_header) = request.headers().get("x-api-key") {
         if let Ok(key_str) = api_key_header.to_str() {
             tracing::debug!("Received x-api-key header: {}", key_str);
             tracing::debug!("Expected: {}", state.proxy_api_key);
-            // Validate against PROXY_API_KEY (Requirement 16.3)
             if key_str == state.proxy_api_key {
-                // Pass request to next handler on success (Requirement 16.5)
                 return Ok(next.run(request).await);
             }
         }
     }
 
-    // Return 401 on failure (Requirement 16.4)
     let path = request.uri().path();
     let method = request.method();
     let request_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
@@ -74,21 +59,11 @@ pub async fn auth_middleware(
 ///
 /// Configures CORS to allow all origins, methods, and headers.
 /// Handles OPTIONS preflight requests automatically.
-///
-/// Requirements:
-/// - 17.1: Allow all origins
-/// - 17.2: Allow all methods
-/// - 17.3: Allow all headers
-/// - 17.4: Handle OPTIONS preflight
 pub fn cors_layer() -> CorsLayer {
     CorsLayer::new()
-        // Allow all origins (Requirement 17.1)
         .allow_origin(Any)
-        // Allow all methods (Requirement 17.2)
         .allow_methods(Any)
-        // Allow all headers (Requirement 17.3)
         .allow_headers(Any)
-    // OPTIONS preflight is handled automatically by tower-http (Requirement 17.4)
 }
 
 #[cfg(test)]

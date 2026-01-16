@@ -1,6 +1,3 @@
-// Error handling module
-// Defines error types and HTTP response conversion
-
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
