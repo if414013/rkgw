@@ -13,3 +13,4 @@ pub mod streaming;
 pub mod middleware;
 pub mod utils;
 pub mod thinking_parser;
+pub mod tokenizer;

@@ -29,6 +29,7 @@ use crate::converters::openai_to_kiro::build_kiro_payload;
 use crate::converters::anthropic_to_kiro::build_kiro_payload as build_kiro_payload_anthropic;
 use crate::middleware;
 use crate::middleware::DEBUG_LOGGER;
+use crate::tokenizer::count_anthropic_message_tokens;
 
 /// Application version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -343,17 +344,25 @@ async fn anthropic_messages_handler(
     // Execute request with retry logic
     let response = state.http_client.request_with_retry(req).await?;
 
+    // Calculate input tokens from request
+    let input_tokens = count_anthropic_message_tokens(
+        &request.messages,
+        request.system.as_ref(),
+        request.tools.as_ref(),
+    );
+
     // Handle streaming vs non-streaming
     if request.stream {
         // Streaming response
         tracing::debug!("Handling streaming response");
-        
+
         // Convert response to Anthropic SSE stream
         let first_token_timeout = state.config.first_token_timeout;
         let anthropic_stream = crate::streaming::stream_kiro_to_anthropic(
             response,
             &request.model,
             first_token_timeout,
+            input_tokens,
         ).await?;
 
         // Convert to raw SSE response (stream already contains properly formatted SSE events)
@@ -386,6 +395,7 @@ async fn anthropic_messages_handler(
             response,
             &request.model,
             first_token_timeout,
+            input_tokens,
         ).await?;
 
         // Discard debug buffers on success

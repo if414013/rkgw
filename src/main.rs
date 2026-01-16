@@ -16,6 +16,7 @@ mod resolver;
 mod routes;
 mod streaming;
 mod thinking_parser;
+mod tokenizer;
 mod utils;
 
 #[tokio::main]

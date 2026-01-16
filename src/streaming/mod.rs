@@ -1728,6 +1728,7 @@ pub async fn stream_kiro_to_anthropic(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    input_tokens: i32,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let message_id = generate_anthropic_message_id();
     let model = model.to_string();
@@ -1764,7 +1765,7 @@ pub async fn stream_kiro_to_anthropic(
             "stop_reason": null,
             "stop_sequence": null,
             "usage": {
-                "input_tokens": 0,
+                "input_tokens": input_tokens,
                 "output_tokens": 0
             }
         }
@@ -2168,6 +2169,7 @@ pub async fn collect_anthropic_response(
     response: reqwest::Response,
     model: &str,
     first_token_timeout_secs: u64,
+    input_tokens: i32,
 ) -> Result<Value, ApiError> {
     use futures::StreamExt;
 
@@ -2254,11 +2256,11 @@ pub async fn collect_anthropic_response(
         "end_turn"
     };
 
-    // Build usage
-    let (input_tokens, output_tokens) = if let Some(u) = usage {
-        (u.input_tokens, u.output_tokens)
+    // Build usage - use passed input_tokens, get output_tokens from stream
+    let output_tokens = if let Some(u) = usage {
+        u.output_tokens
     } else {
-        (0, 0)
+        0
     };
 
     // Build complete response
