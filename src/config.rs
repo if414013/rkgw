@@ -134,7 +134,11 @@ impl Config {
             kiro_cli_db_file: args
                 .db_file
                 .map(|s| expand_tilde(&s))
-                .or_else(|| std::env::var("KIRO_CLI_DB_FILE").ok().map(|s| expand_tilde(&s)))
+                .or_else(|| {
+                    std::env::var("KIRO_CLI_DB_FILE")
+                        .ok()
+                        .map(|s| expand_tilde(&s))
+                })
                 .context("KIRO_CLI_DB_FILE is required (use -d or set KIRO_CLI_DB_FILE env var)")?,
 
             // Timeouts

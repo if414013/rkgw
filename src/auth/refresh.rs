@@ -108,18 +108,18 @@ pub async fn refresh_aws_sso_oidc(client: &Client, creds: &Credentials) -> Resul
         &client_id[..8.min(client_id.len())]
     );
 
-    // AWS SSO OIDC uses form-urlencoded data
-    let form = [
-        ("grant_type", "refresh_token"),
-        ("client_id", client_id.as_str()),
-        ("client_secret", client_secret.as_str()),
-        ("refresh_token", creds.refresh_token.as_str()),
-    ];
+    // AWS SSO OIDC uses JSON with camelCase field names
+    let body = serde_json::json!({
+        "grantType": "refresh_token",
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "refreshToken": &creds.refresh_token,
+    });
 
     let response = client
         .post(&url)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .form(&form)
+        .header("Content-Type", "application/json")
+        .json(&body)
         .send()
         .await
         .context("Failed to send AWS SSO OIDC refresh request")?;

@@ -194,41 +194,6 @@ pub fn count_tools_tokens(tools: Option<&Vec<Tool>>, apply_claude_correction: bo
     }
 }
 
-/// Token estimate breakdown for a request
-#[derive(Debug, Clone)]
-pub struct TokenEstimate {
-    pub messages_tokens: i32,
-    pub tools_tokens: i32,
-    pub system_tokens: i32,
-    pub total_tokens: i32,
-}
-
-/// Estimates total input tokens for an OpenAI-format request.
-///
-/// # Arguments
-/// * `messages` - List of messages in OpenAI format
-/// * `tools` - Optional list of tools
-/// * `system_prompt` - Optional system prompt (extracted from messages or separate)
-///
-/// # Returns
-/// Token estimate breakdown
-pub fn estimate_request_tokens(
-    messages: &[ChatMessage],
-    tools: Option<&Vec<Tool>>,
-    system_prompt: Option<&str>,
-) -> TokenEstimate {
-    let messages_tokens = count_message_tokens(messages, false);
-    let tools_tokens = count_tools_tokens(tools, false);
-    let system_tokens = system_prompt.map(|s| count_tokens(s, false)).unwrap_or(0);
-
-    TokenEstimate {
-        messages_tokens,
-        tools_tokens,
-        system_tokens,
-        total_tokens: messages_tokens + tools_tokens + system_tokens,
-    }
-}
-
 /// Counts tokens in a list of Anthropic messages.
 ///
 /// Accounts for message structure:
@@ -440,7 +405,9 @@ mod tests {
     fn test_count_message_tokens_with_correction() {
         let messages = vec![ChatMessage {
             role: "user".to_string(),
-            content: Some(json!("This is a longer message to test the correction factor application.")),
+            content: Some(json!(
+                "This is a longer message to test the correction factor application."
+            )),
             name: None,
             tool_calls: None,
             tool_call_id: None,
@@ -584,69 +551,6 @@ mod tests {
         let single_tool = vec![tools[0].clone()];
         let single_tokens = count_tools_tokens(Some(&single_tool), false);
         assert!(tokens > single_tokens);
-    }
-
-    // ==================== Estimate Request Tokens Tests ====================
-
-    #[test]
-    fn test_estimate_request_tokens_messages_only() {
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: Some(json!("Hello")),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }];
-        let estimate = estimate_request_tokens(&messages, None, None);
-        assert!(estimate.messages_tokens > 0);
-        assert_eq!(estimate.tools_tokens, 0);
-        assert_eq!(estimate.system_tokens, 0);
-        assert_eq!(estimate.total_tokens, estimate.messages_tokens);
-    }
-
-    #[test]
-    fn test_estimate_request_tokens_with_tools() {
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: Some(json!("What's the weather?")),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }];
-        let tools = vec![Tool {
-            tool_type: "function".to_string(),
-            function: ToolFunction {
-                name: "get_weather".to_string(),
-                description: Some("Get weather".to_string()),
-                parameters: None,
-            },
-        }];
-        let estimate = estimate_request_tokens(&messages, Some(&tools), None);
-        assert!(estimate.messages_tokens > 0);
-        assert!(estimate.tools_tokens > 0);
-        assert_eq!(
-            estimate.total_tokens,
-            estimate.messages_tokens + estimate.tools_tokens
-        );
-    }
-
-    #[test]
-    fn test_estimate_request_tokens_with_system() {
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: Some(json!("Hello")),
-            name: None,
-            tool_calls: None,
-            tool_call_id: None,
-        }];
-        let system = "You are a helpful assistant.";
-        let estimate = estimate_request_tokens(&messages, None, Some(system));
-        assert!(estimate.messages_tokens > 0);
-        assert!(estimate.system_tokens > 0);
-        assert_eq!(
-            estimate.total_tokens,
-            estimate.messages_tokens + estimate.system_tokens
-        );
     }
 
     // ==================== Anthropic Message Token Tests ====================
