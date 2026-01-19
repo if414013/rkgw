@@ -235,6 +235,8 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 <details>
 <summary>View Claude Code CLI configuration</summary>
 
+https://github.com/user-attachments/assets/placeholder-claude-code-video
+
 To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), set the following environment variables:
 
 **One-liner:**
