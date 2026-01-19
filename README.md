@@ -147,7 +147,7 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 }
 ```
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable. The default port is `8000`, but can be changed via `SERVER_PORT` in your `.env` file.
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file.
 
 </details>
 
