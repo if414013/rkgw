@@ -174,6 +174,8 @@ To use this gateway with [OpenCode](https://opencode.ai), add the following prov
 
 For more details on OpenCode configuration, see the [OpenCode Config Documentation](https://opencode.ai/docs/config/).
 
+https://github.com/if414013/rkgw/raw/main/docs/images-and-videos/opencode.mov
+
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
