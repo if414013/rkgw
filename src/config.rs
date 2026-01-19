@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use dialoguer::{Confirm, Input, Password, Select};
+use std::io::Write;
 use std::path::PathBuf;
 
 /// Kiro Gateway - Rust Implementation
@@ -356,4 +358,205 @@ mod tests {
         );
         assert_ne!(FakeReasoningHandling::Remove, FakeReasoningHandling::Pass);
     }
+}
+
+// === Interactive Setup ===
+
+/// Check if interactive setup is needed (no .env file and missing required values)
+pub fn needs_interactive_setup() -> bool {
+    // Check if .env file exists
+    let env_file_exists = std::path::Path::new(".env").exists();
+
+    // Check if required env vars are set
+    let has_proxy_key = std::env::var("PROXY_API_KEY").is_ok();
+    let has_db_file = std::env::var("KIRO_CLI_DB_FILE").is_ok();
+
+    // Need setup if no .env and missing required values
+    !env_file_exists && (!has_proxy_key || !has_db_file)
+}
+
+/// Run interactive setup to collect required configuration
+pub fn run_interactive_setup() -> Result<InteractiveConfig> {
+    println!();
+    println!("╔═══════════════════════════════════════════════════════════╗");
+    println!("║           🔧 Kiro Gateway - First Time Setup              ║");
+    println!("╚═══════════════════════════════════════════════════════════╝");
+    println!();
+    println!("No configuration found. Let's set up your gateway.");
+    println!();
+
+    // Prompt for PROXY_API_KEY
+    let proxy_api_key: String = Password::new()
+        .with_prompt("Enter a password to protect your gateway (PROXY_API_KEY)")
+        .interact()
+        .context("Failed to read PROXY_API_KEY")?;
+
+    if proxy_api_key.is_empty() {
+        anyhow::bail!("PROXY_API_KEY cannot be empty");
+    }
+
+    // Try to auto-detect kiro-cli database path
+    let default_db_path = detect_kiro_cli_db_path();
+
+    let kiro_cli_db_file: String = if let Some(ref default_path) = default_db_path {
+        println!();
+        println!("Found kiro-cli database at: {}", default_path);
+
+        let use_default = Confirm::new()
+            .with_prompt("Use this path?")
+            .default(true)
+            .interact()
+            .context("Failed to read confirmation")?;
+
+        if use_default {
+            default_path.clone()
+        } else {
+            Input::new()
+                .with_prompt("Enter path to kiro-cli SQLite database (KIRO_CLI_DB_FILE)")
+                .interact_text()
+                .context("Failed to read KIRO_CLI_DB_FILE")?
+        }
+    } else {
+        println!();
+        println!("Could not auto-detect kiro-cli database location.");
+        println!("Common locations:");
+        println!("  - macOS: ~/Library/Application Support/kiro-cli/data.sqlite3");
+        println!("  - Linux: ~/.local/share/kiro-cli/data.sqlite3");
+        println!();
+
+        Input::new()
+            .with_prompt("Enter path to kiro-cli SQLite database (KIRO_CLI_DB_FILE)")
+            .interact_text()
+            .context("Failed to read KIRO_CLI_DB_FILE")?
+    };
+
+    // Validate the database file exists
+    let expanded_path = expand_tilde(&kiro_cli_db_file);
+    if !expanded_path.exists() {
+        anyhow::bail!(
+            "Database file does not exist: {}\n\nMake sure you have logged in with kiro-cli:\n  kiro-cli login",
+            expanded_path.display()
+        );
+    }
+
+    // Prompt for region with default
+    println!();
+    let regions = vec!["us-east-1", "us-west-2", "eu-west-1", "ap-northeast-1"];
+    let region_idx = Select::new()
+        .with_prompt("Select AWS region for Kiro API")
+        .items(&regions)
+        .default(0)
+        .interact()
+        .context("Failed to read region selection")?;
+    let kiro_region = regions[region_idx].to_string();
+
+    // Prompt for server port with default
+    println!();
+    let server_port: String = Input::new()
+        .with_prompt("Server port")
+        .default("8000".to_string())
+        .interact_text()
+        .context("Failed to read server port")?;
+
+    let config = InteractiveConfig {
+        proxy_api_key,
+        kiro_cli_db_file,
+        kiro_region,
+        server_port,
+    };
+
+    // Ask if user wants to save to .env file
+    println!();
+    let save_to_env = Confirm::new()
+        .with_prompt("Save configuration to .env file?")
+        .default(true)
+        .interact()
+        .context("Failed to read save confirmation")?;
+
+    if save_to_env {
+        save_env_file(&config)?;
+        println!();
+        println!("✅ Configuration saved to .env file");
+    }
+
+    println!();
+    println!("✅ Setup complete! Starting gateway...");
+    println!();
+
+    Ok(config)
+}
+
+/// Configuration collected from interactive setup
+#[derive(Debug, Clone)]
+pub struct InteractiveConfig {
+    pub proxy_api_key: String,
+    pub kiro_cli_db_file: String,
+    pub kiro_region: String,
+    pub server_port: String,
+}
+
+/// Try to detect the kiro-cli database path
+fn detect_kiro_cli_db_path() -> Option<String> {
+    // Try macOS path first
+    if let Some(home) = dirs::home_dir() {
+        let macos_path = home.join("Library/Application Support/kiro-cli/data.sqlite3");
+        if macos_path.exists() {
+            return Some(macos_path.to_string_lossy().to_string());
+        }
+
+        // Try Linux path
+        let linux_path = home.join(".local/share/kiro-cli/data.sqlite3");
+        if linux_path.exists() {
+            return Some(linux_path.to_string_lossy().to_string());
+        }
+
+        // Try old kiro path (data.db)
+        let old_macos_path = home.join("Library/Application Support/kiro-cli/data.db");
+        if old_macos_path.exists() {
+            return Some(old_macos_path.to_string_lossy().to_string());
+        }
+
+        // Try ~/.kiro/data.db (legacy)
+        let legacy_path = home.join(".kiro/data.db");
+        if legacy_path.exists() {
+            return Some(legacy_path.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
+/// Save configuration to .env file
+fn save_env_file(config: &InteractiveConfig) -> Result<()> {
+    let env_content = format!(
+        r#"# Kiro Gateway Configuration
+# Generated by interactive setup
+
+# Password to protect the proxy server (required)
+PROXY_API_KEY={}
+
+# Path to kiro-cli SQLite database (required)
+KIRO_CLI_DB_FILE={}
+
+# AWS region for Kiro API
+KIRO_REGION={}
+
+# Server settings
+SERVER_HOST=0.0.0.0
+SERVER_PORT={}
+
+# Logging (trace, debug, info, warn, error)
+LOG_LEVEL=info
+
+# Debug mode (off, errors, all)
+DEBUG_MODE=off
+"#,
+        config.proxy_api_key, config.kiro_cli_db_file, config.kiro_region, config.server_port,
+    );
+
+    let mut file = std::fs::File::create(".env").context("Failed to create .env file")?;
+    file.write_all(env_content.as_bytes())
+        .context("Failed to write .env file")?;
+
+    Ok(())
 }

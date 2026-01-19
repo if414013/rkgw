@@ -18,6 +18,17 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Check if interactive setup is needed (no .env and missing required values)
+    if config::needs_interactive_setup() {
+        let interactive_config = config::run_interactive_setup()?;
+
+        // Set environment variables from interactive config so Config::load() can use them
+        std::env::set_var("PROXY_API_KEY", &interactive_config.proxy_api_key);
+        std::env::set_var("KIRO_CLI_DB_FILE", &interactive_config.kiro_cli_db_file);
+        std::env::set_var("KIRO_REGION", &interactive_config.kiro_region);
+        std::env::set_var("SERVER_PORT", &interactive_config.server_port);
+    }
+
     // Load configuration first (for log level)
     let config = config::Config::load()?;
     config.validate()?;
