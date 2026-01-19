@@ -237,6 +237,12 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 
 To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), set the following environment variables:
 
+**One-liner:**
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+```
+
+**Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8000
 export ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
@@ -245,8 +251,6 @@ export DISABLE_PROMPT_CACHING=1
 export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
-
-Add these to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist them.
 
 | Variable | Description |
 |----------|-------------|
