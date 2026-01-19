@@ -230,6 +230,39 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 
 ---
 
+## 🖥️ Claude Code CLI Setup
+
+<details>
+<summary>View Claude Code CLI configuration</summary>
+
+To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), set the following environment variables:
+
+```bash
+export ANTHROPIC_BASE_URL=http://127.0.0.1:8000
+export ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
+export CLAUDE_CODE_ENABLE_TELEMETRY=0
+export DISABLE_PROMPT_CACHING=1
+export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+```
+
+Add these to your shell profile (`~/.bashrc`, `~/.zshrc`, etc.) to persist them.
+
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_BASE_URL` | Points Claude Code to your gateway |
+| `ANTHROPIC_AUTH_TOKEN` | Your `PROXY_API_KEY` value |
+| `CLAUDE_CODE_ENABLE_TELEMETRY` | Disable telemetry |
+| `DISABLE_PROMPT_CACHING` | Disable prompt caching (not supported by gateway) |
+| `DISABLE_NON_ESSENTIAL_MODEL_CALLS` | Reduce unnecessary API calls |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic |
+
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file.
+
+</details>
+
+---
+
 ## 🔧 Building
 
 ```bash
