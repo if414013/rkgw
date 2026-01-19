@@ -168,6 +168,49 @@ curl http://localhost:8000/v1/messages \
 
 ---
 
+## 🖥️ OpenCode Setup
+
+To use this gateway with [OpenCode](https://opencode.ai), add the following provider configuration to your global config file at `~/.config/opencode/opencode.json`. This makes the Kiro provider available across all your projects.
+
+For more details on OpenCode configuration, see the [OpenCode Config Documentation](https://opencode.ai/docs/config/).
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "kiro": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Kiro Proxy",
+      "options": {
+        "baseURL": "http://127.0.0.1:9000/v1",
+        "apiKey": "your-proxy-api-key"
+      },
+      "models": {
+        "auto": {
+          "name": "Auto"
+        },
+        "claude-haiku-4.5": {
+          "name": "Claude Haiku 4.5"
+        },
+        "claude-opus-4.5": {
+          "name": "Claude Opus 4.5"
+        },
+        "claude-sonnet-4": {
+          "name": "Claude Sonnet 4"
+        },
+        "claude-sonnet-4.5": {
+          "name": "Claude Sonnet 4.5"
+        }
+      }
+    }
+  }
+}
+```
+
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable, and adjust the `baseURL` port if you're running the gateway on a different port.
+
+---
+
 ## 🔧 Building
 
 ```bash
