@@ -56,6 +56,83 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 ---
 
+## 🚀 Quick Start
+
+### Prerequisites
+
+- [Kiro CLI](https://kiro.dev/cli/) installed and logged in with AWS SSO (Builder ID)
+
+### Installation via Homebrew (Recommended)
+
+```bash
+# Add the tap
+brew tap if414013/tvps
+
+# Install kiro-gateway
+brew install kiro-gateway
+
+# Run (interactive setup on first run)
+kiro-gateway
+```
+
+### Installation from Source
+
+Requires Rust 1.75+ (install via [rustup](https://rustup.rs/))
+
+```bash
+# Clone the repository
+git clone https://github.com/if414013/rkgw.git
+cd rkgw
+
+# Build release binary
+cargo build --release
+
+# Run
+./target/release/kiro-gateway
+```
+
+The server will be available at `http://localhost:8000`
+
+---
+
+## ⚙️ Configuration
+
+On first run, `kiro-gateway` will guide you through an interactive setup if no `.env` file is found. It will:
+- Prompt for a password to protect your gateway
+- Auto-detect your kiro-cli database location
+- Let you choose the AWS region
+- Optionally save the configuration to a `.env` file
+
+### Manual Configuration
+
+Create a `.env` file in the project root:
+
+```env
+# Required - Path to kiro-cli SQLite database
+KIRO_CLI_DB_FILE="~/Library/Application Support/kiro-cli/data.sqlite3"
+
+# Password to protect YOUR proxy server
+PROXY_API_KEY="my-super-secret-password-123"
+
+# Optional
+KIRO_REGION="us-east-1"
+```
+
+### Kiro CLI Database Locations
+
+The gateway auto-detects the kiro-cli database from these common locations:
+
+| Platform | Path |
+|----------|------|
+| **macOS** | `~/Library/Application Support/kiro-cli/data.sqlite3` |
+| **Linux** | `~/.local/share/kiro-cli/data.sqlite3` |
+| **macOS (old)** | `~/Library/Application Support/kiro-cli/data.db` |
+| **Legacy** | `~/.kiro/data.db` |
+
+The gateway reads credentials from the kiro-cli SQLite database and automatically refreshes tokens before expiration.
+
+---
+
 ## 🏗️ Architecture
 
 <details>
