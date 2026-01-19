@@ -69,6 +69,9 @@ For detailed architecture documentation including component diagrams, data flows
 
 ## 💡 API Usage Examples
 
+<details>
+<summary>View API usage examples</summary>
+
 ### OpenAI API
 
 ```bash
@@ -96,9 +99,14 @@ curl http://localhost:8000/v1/messages \
   }'
 ```
 
+</details>
+
 ---
 
 ## 🖥️ OpenCode Setup
+
+<details>
+<summary>View OpenCode configuration</summary>
 
 To use this gateway with [OpenCode](https://opencode.ai), add the following provider configuration to your global config file at `~/.config/opencode/opencode.json`. This makes the Kiro provider available across all your projects.
 
@@ -140,6 +148,8 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
 ```
 
 > **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY` environment variable, and adjust the `baseURL` port if you're running the gateway on a different port.
+
+</details>
 
 ---
 
