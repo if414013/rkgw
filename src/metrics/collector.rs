@@ -132,6 +132,13 @@ impl MetricsCollector {
             counts.push_back((now, input_tokens, output_tokens));
         }
 
+        if let Ok(mut samples) = self.request_rate_samples.lock() {
+            if samples.len() >= RING_BUFFER_CAPACITY {
+                samples.pop_front();
+            }
+            samples.push_back((now, 1));
+        }
+
         self.per_model_stats
             .entry(model.to_string())
             .or_default()
