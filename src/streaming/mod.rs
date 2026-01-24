@@ -169,6 +169,8 @@ pub struct ToolCallAccumulator {
     current_tool: Option<AccumulatingTool>,
     /// Completed tool calls
     pub completed_tools: Vec<ToolUse>,
+    /// Whether finalize() has been called (prevents double-finalization on stream errors)
+    finalized: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -387,8 +389,13 @@ impl ToolCallAccumulator {
         Some(completed)
     }
 
-    /// Finalize any remaining tool at end of stream
+    /// Finalize any remaining tool at end of stream.
+    /// Returns None if already finalized (prevents double-finalization on stream errors).
     pub fn finalize(&mut self) -> Option<ToolUse> {
+        if self.finalized {
+            return None;
+        }
+        self.finalized = true;
         self.finalize_current()
     }
 }
@@ -986,13 +993,57 @@ pub async fn parse_kiro_stream_with_thinking(
                                     }
                                 }
                             }
-                            Err(e) => events.push(Err(e)),
+                            Err(e) => {
+                                // Finalize pending tool before emitting parser error
+                                let mut tool_acc_guard = tool_acc.lock().unwrap();
+                                if let Some(completed_tool) = tool_acc_guard.finalize() {
+                                    tracing::warn!(
+                                        "Parser error - finalizing pending tool '{}'",
+                                        completed_tool.name
+                                    );
+                                    events.push(Ok(KiroEvent {
+                                        event_type: "tool_use".to_string(),
+                                        content: None,
+                                        thinking_content: None,
+                                        tool_use: Some(completed_tool),
+                                        usage: None,
+                                        context_usage_percentage: None,
+                                        is_first_thinking_chunk: false,
+                                        is_last_thinking_chunk: false,
+                                    }));
+                                }
+                                drop(tool_acc_guard);
+                                events.push(Err(e));
+                            }
                         }
                         futures::stream::iter(events)
                     }
-                    Err(e) => futures::stream::iter(vec![Err(ApiError::Internal(
-                        anyhow::anyhow!("Stream error: {}", e),
-                    ))]),
+                    Err(e) => {
+                        // Finalize pending tool before emitting stream error
+                        let mut events = Vec::new();
+                        let mut tool_acc_guard = tool_acc.lock().unwrap();
+                        if let Some(completed_tool) = tool_acc_guard.finalize() {
+                            tracing::warn!(
+                                "Stream error - finalizing pending tool '{}'",
+                                completed_tool.name
+                            );
+                            events.push(Ok(KiroEvent {
+                                event_type: "tool_use".to_string(),
+                                content: None,
+                                thinking_content: None,
+                                tool_use: Some(completed_tool),
+                                usage: None,
+                                context_usage_percentage: None,
+                                is_first_thinking_chunk: false,
+                                is_last_thinking_chunk: false,
+                            }));
+                        }
+                        drop(tool_acc_guard);
+                        events.push(Err(ApiError::Internal(
+                            anyhow::anyhow!("Stream error: {}", e),
+                        )));
+                        futures::stream::iter(events)
+                    }
                 }
             }
         })
@@ -1502,6 +1553,60 @@ mod tests {
         let parsed: Usage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.input_tokens, 100);
         assert_eq!(parsed.output_tokens, 50);
+    }
+
+    // ==================== Finalize Double-Call Prevention Tests ====================
+
+    #[test]
+    fn test_tool_call_accumulator_finalize_prevents_double() {
+        let mut acc = ToolCallAccumulator::new();
+
+        // Start a tool but don't stop it
+        let start = serde_json::json!({
+            "name": "write",
+            "toolUseId": "call_double_test",
+            "input": "{\"filePath\": \"/test/path.txt\"}"
+        });
+        acc.process_event(&start);
+
+        // First finalize should return the tool
+        let result1 = acc.finalize();
+        assert!(result1.is_some());
+        let tool = result1.unwrap();
+        assert_eq!(tool.name, "write");
+        assert_eq!(tool.tool_use_id, "call_double_test");
+
+        // Second finalize should return None (prevents double-finalization)
+        let result2 = acc.finalize();
+        assert!(result2.is_none());
+
+        // Third finalize should also return None
+        let result3 = acc.finalize();
+        assert!(result3.is_none());
+    }
+
+    #[test]
+    fn test_tool_call_accumulator_truncated_json() {
+        let mut acc = ToolCallAccumulator::new();
+
+        // Simulate truncated JSON input (stream terminated mid-tool-call)
+        let start = serde_json::json!({
+            "name": "write",
+            "toolUseId": "call_truncated",
+            "input": "{\"filePath\": \"/Users/test/docs/api.yaml\""
+        });
+        // Note: The input JSON is missing the closing "}"
+        acc.process_event(&start);
+
+        // Finalize should still return the tool with whatever data we have
+        let result = acc.finalize();
+        assert!(result.is_some());
+
+        let tool = result.unwrap();
+        assert_eq!(tool.name, "write");
+        assert_eq!(tool.tool_use_id, "call_truncated");
+        // The input should be an empty object since the truncated JSON fails to parse
+        assert!(tool.input.is_object());
     }
 }
 

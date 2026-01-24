@@ -110,6 +110,11 @@ async fn main() -> Result<()> {
         }
     };
 
+    tracing::info!("📊 Models from Kiro API:");
+    for model in &models {
+        tracing::info!("{}", serde_json::to_string_pretty(model).unwrap_or_default());
+    }
+
     model_cache.update(models);
     tracing::info!(
         "✅ Loaded {} models from Kiro API",
