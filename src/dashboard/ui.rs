@@ -10,9 +10,9 @@ pub fn render(frame: &mut Frame, app: &DashboardApp) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
-            Constraint::Min(8),
-            Constraint::Length(10),
+            Constraint::Length(3),  // Top row: gauges
+            Constraint::Length(10), // Middle row: charts
+            Constraint::Min(15),    // Bottom row: logs (expanded)
         ])
         .split(size);
 
@@ -32,20 +32,15 @@ fn render_top_row(frame: &mut Frame, app: &DashboardApp, area: Rect) {
         .split(area);
 
     let active = app.metrics.get_active_connections();
-    let connections_gauge = widgets::render_gauge("Active Connections", active as f64, 100.0);
+    let connections_gauge = widgets::render_connections_gauge(active);
     frame.render_widget(connections_gauge, top_chunks[0]);
 
     let cpu = app.get_cpu_usage() as f64;
-    let cpu_gauge = widgets::render_gauge("CPU Usage", cpu, 100.0);
+    let cpu_gauge = widgets::render_cpu_gauge(cpu);
     frame.render_widget(cpu_gauge, top_chunks[1]);
 
     let (used, total) = app.get_memory_usage();
-    let mem_percent = if total > 0 {
-        (used as f64 / total as f64) * 100.0
-    } else {
-        0.0
-    };
-    let mem_gauge = widgets::render_gauge("Memory", mem_percent, 100.0);
+    let mem_gauge = widgets::render_memory_gauge(used, total);
     frame.render_widget(mem_gauge, top_chunks[2]);
 }
 

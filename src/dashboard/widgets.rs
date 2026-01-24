@@ -4,6 +4,73 @@ use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Sparkli
 
 use super::app::LogEntry;
 
+pub fn render_connections_gauge(active: u64) -> Paragraph<'static> {
+    let color = if active > 10 {
+        Color::Red
+    } else if active > 5 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+
+    let text = Line::from(vec![Span::styled(
+        format!("{}", active),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    )]);
+
+    Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Active Connections"),
+        )
+        .centered()
+}
+
+pub fn render_cpu_gauge(cpu: f64) -> Gauge<'static> {
+    let ratio = (cpu / 100.0).clamp(0.0, 1.0);
+    let color = if cpu > 80.0 {
+        Color::Red
+    } else if cpu > 60.0 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+
+    Gauge::default()
+        .block(Block::default().borders(Borders::ALL).title("CPU Usage"))
+        .gauge_style(Style::default().fg(color))
+        .ratio(ratio)
+        .label(format!("{:.1}%", cpu))
+}
+
+pub fn render_memory_gauge(used: u64, total: u64) -> Gauge<'static> {
+    let ratio = if total > 0 {
+        (used as f64 / total as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let percent = ratio * 100.0;
+
+    let color = if percent > 80.0 {
+        Color::Red
+    } else if percent > 60.0 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+
+    let used_gb = used as f64 / 1024.0 / 1024.0 / 1024.0;
+    let total_gb = total as f64 / 1024.0 / 1024.0 / 1024.0;
+
+    Gauge::default()
+        .block(Block::default().borders(Borders::ALL).title("Memory"))
+        .gauge_style(Style::default().fg(color))
+        .ratio(ratio)
+        .label(format!("{:.1}/{:.1} GB", used_gb, total_gb))
+}
+
+#[allow(dead_code)]
 pub fn render_gauge(title: &str, value: f64, max: f64) -> Gauge<'static> {
     let ratio = (value / max).clamp(0.0, 1.0);
     let color = if ratio > 0.8 {
