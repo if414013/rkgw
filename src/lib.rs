@@ -4,6 +4,7 @@ pub mod config;
 pub mod converters;
 pub mod error;
 pub mod http_client;
+pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod resolver;

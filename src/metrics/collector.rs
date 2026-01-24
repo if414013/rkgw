@@ -1,0 +1,383 @@
+use dashmap::DashMap;
+use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// Ring buffer capacity for samples (15 minutes at ~4 samples/sec)
+const RING_BUFFER_CAPACITY: usize = 3600;
+
+/// Maximum age for samples (15 minutes)
+const MAX_SAMPLE_AGE: Duration = Duration::from_secs(15 * 60);
+
+/// Per-model statistics
+#[derive(Debug)]
+pub struct ModelStats {
+    pub request_count: AtomicU64,
+    pub total_latency_ms: AtomicU64,
+    pub total_input_tokens: AtomicU64,
+    pub total_output_tokens: AtomicU64,
+}
+
+impl ModelStats {
+    /// Create new model statistics
+    pub fn new() -> Self {
+        Self {
+            request_count: AtomicU64::new(0),
+            total_latency_ms: AtomicU64::new(0),
+            total_input_tokens: AtomicU64::new(0),
+            total_output_tokens: AtomicU64::new(0),
+        }
+    }
+
+    /// Record a request for this model
+    pub fn record_request(&self, latency_ms: f64, input_tokens: u64, output_tokens: u64) {
+        self.request_count.fetch_add(1, Ordering::Relaxed);
+        self.total_latency_ms
+            .fetch_add(latency_ms as u64, Ordering::Relaxed);
+        self.total_input_tokens
+            .fetch_add(input_tokens, Ordering::Relaxed);
+        self.total_output_tokens
+            .fetch_add(output_tokens, Ordering::Relaxed);
+    }
+
+    /// Get average latency in milliseconds
+    pub fn avg_latency_ms(&self) -> f64 {
+        let count = self.request_count.load(Ordering::Relaxed);
+        if count == 0 {
+            return 0.0;
+        }
+        let total = self.total_latency_ms.load(Ordering::Relaxed);
+        total as f64 / count as f64
+    }
+}
+
+impl Default for ModelStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Metrics collector for monitoring dashboard
+pub struct MetricsCollector {
+    /// Current active connections/requests
+    active_connections: AtomicU64,
+
+    /// Lifetime total request count
+    total_requests: AtomicU64,
+
+    /// Lifetime total error count
+    total_errors: AtomicU64,
+
+    /// Errors keyed by type
+    errors_by_type: DashMap<String, AtomicU64>,
+
+    /// Latency samples (time, latency_ms) - ring buffer
+    latency_samples: Mutex<VecDeque<(Instant, f64)>>,
+
+    /// Request rate samples (time, count) - ring buffer
+    request_rate_samples: Mutex<VecDeque<(Instant, u64)>>,
+
+    /// Token counts (time, input_tokens, output_tokens) - ring buffer
+    token_counts: Mutex<VecDeque<(Instant, u64, u64)>>,
+
+    /// Per-model statistics
+    per_model_stats: DashMap<String, ModelStats>,
+}
+
+impl MetricsCollector {
+    /// Create a new metrics collector
+    pub fn new() -> Self {
+        Self {
+            active_connections: AtomicU64::new(0),
+            total_requests: AtomicU64::new(0),
+            total_errors: AtomicU64::new(0),
+            errors_by_type: DashMap::new(),
+            latency_samples: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
+            request_rate_samples: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
+            token_counts: Mutex::new(VecDeque::with_capacity(RING_BUFFER_CAPACITY)),
+            per_model_stats: DashMap::new(),
+        }
+    }
+
+    /// Record the start of a request
+    pub fn record_request_start(&self) {
+        self.active_connections.fetch_add(1, Ordering::Relaxed);
+        self.total_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record the end of a request
+    pub fn record_request_end(
+        &self,
+        latency_ms: f64,
+        model: &str,
+        input_tokens: u64,
+        output_tokens: u64,
+    ) {
+        self.active_connections.fetch_sub(1, Ordering::Relaxed);
+
+        let now = Instant::now();
+
+        if let Ok(mut samples) = self.latency_samples.lock() {
+            if samples.len() >= RING_BUFFER_CAPACITY {
+                samples.pop_front();
+            }
+            samples.push_back((now, latency_ms));
+        }
+
+        if let Ok(mut counts) = self.token_counts.lock() {
+            if counts.len() >= RING_BUFFER_CAPACITY {
+                counts.pop_front();
+            }
+            counts.push_back((now, input_tokens, output_tokens));
+        }
+
+        self.per_model_stats
+            .entry(model.to_string())
+            .or_default()
+            .record_request(latency_ms, input_tokens, output_tokens);
+    }
+
+    /// Record an error
+    pub fn record_error(&self, error_type: &str) {
+        self.total_errors.fetch_add(1, Ordering::Relaxed);
+
+        self.errors_by_type
+            .entry(error_type.to_string())
+            .or_insert_with(|| AtomicU64::new(0))
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get current active connections
+    pub fn get_active_connections(&self) -> u64 {
+        self.active_connections.load(Ordering::Relaxed)
+    }
+
+    /// Get latency percentiles (p50, p95, p99)
+    pub fn get_latency_percentiles(&self) -> (f64, f64, f64) {
+        let samples = match self.latency_samples.lock() {
+            Ok(s) => s,
+            Err(_) => return (0.0, 0.0, 0.0),
+        };
+
+        if samples.is_empty() {
+            return (0.0, 0.0, 0.0);
+        }
+
+        let mut latencies: Vec<f64> = samples.iter().map(|(_, lat)| *lat).collect();
+        latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let len = latencies.len();
+        let p50_idx = (len as f64 * 0.50) as usize;
+        let p95_idx = (len as f64 * 0.95) as usize;
+        let p99_idx = (len as f64 * 0.99) as usize;
+
+        let p50 = latencies.get(p50_idx.min(len - 1)).copied().unwrap_or(0.0);
+        let p95 = latencies.get(p95_idx.min(len - 1)).copied().unwrap_or(0.0);
+        let p99 = latencies.get(p99_idx.min(len - 1)).copied().unwrap_or(0.0);
+
+        (p50, p95, p99)
+    }
+
+    /// Get request rate (requests per second, last minute)
+    pub fn get_request_rate(&self) -> f64 {
+        let samples = match self.request_rate_samples.lock() {
+            Ok(s) => s,
+            Err(_) => return 0.0,
+        };
+
+        if samples.is_empty() {
+            return 0.0;
+        }
+
+        let now = Instant::now();
+        let one_minute_ago = now - Duration::from_secs(60);
+
+        let recent_count: u64 = samples
+            .iter()
+            .filter(|(time, _)| *time >= one_minute_ago)
+            .map(|(_, count)| count)
+            .sum();
+
+        recent_count as f64 / 60.0
+    }
+
+    /// Get error rate (errors per second, last minute)
+    pub fn get_error_rate(&self) -> f64 {
+        let total_errors = self.total_errors.load(Ordering::Relaxed);
+        let total_requests = self.total_requests.load(Ordering::Relaxed);
+
+        if total_requests == 0 {
+            return 0.0;
+        }
+
+        (total_errors as f64 / total_requests as f64) * 100.0
+    }
+
+    /// Get total token counts (input, output)
+    pub fn get_token_totals(&self) -> (u64, u64) {
+        let counts = match self.token_counts.lock() {
+            Ok(c) => c,
+            Err(_) => return (0, 0),
+        };
+
+        let total_input: u64 = counts.iter().map(|(_, input, _)| input).sum();
+        let total_output: u64 = counts.iter().map(|(_, _, output)| output).sum();
+
+        (total_input, total_output)
+    }
+
+    /// Get per-model statistics
+    pub fn get_model_stats(&self) -> Vec<(String, ModelStats)> {
+        self.per_model_stats
+            .iter()
+            .map(|entry| {
+                let model = entry.key().clone();
+                let stats = entry.value();
+                let cloned_stats = ModelStats {
+                    request_count: AtomicU64::new(stats.request_count.load(Ordering::Relaxed)),
+                    total_latency_ms: AtomicU64::new(
+                        stats.total_latency_ms.load(Ordering::Relaxed),
+                    ),
+                    total_input_tokens: AtomicU64::new(
+                        stats.total_input_tokens.load(Ordering::Relaxed),
+                    ),
+                    total_output_tokens: AtomicU64::new(
+                        stats.total_output_tokens.load(Ordering::Relaxed),
+                    ),
+                };
+                (model, cloned_stats)
+            })
+            .collect()
+    }
+
+    /// Clean up old samples (older than 15 minutes)
+    pub fn cleanup_old_samples(&self) {
+        let now = Instant::now();
+        let cutoff = now - MAX_SAMPLE_AGE;
+
+        if let Ok(mut samples) = self.latency_samples.lock() {
+            samples.retain(|(time, _)| *time >= cutoff);
+        }
+
+        if let Ok(mut samples) = self.request_rate_samples.lock() {
+            samples.retain(|(time, _)| *time >= cutoff);
+        }
+
+        if let Ok(mut counts) = self.token_counts.lock() {
+            counts.retain(|(time, _, _)| *time >= cutoff);
+        }
+    }
+
+    /// Get latency history for sparkline display
+    pub fn get_latency_history(&self) -> Vec<f64> {
+        let samples = match self.latency_samples.lock() {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        samples.iter().map(|(_, lat)| *lat).collect()
+    }
+
+    /// Get request rate history for sparkline display
+    pub fn get_request_rate_history(&self) -> Vec<u64> {
+        let samples = match self.request_rate_samples.lock() {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        samples.iter().map(|(_, count)| *count).collect()
+    }
+}
+
+impl Default for MetricsCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_metrics_collector_new() {
+        let collector = MetricsCollector::new();
+        assert_eq!(collector.get_active_connections(), 0);
+        assert_eq!(collector.get_token_totals(), (0, 0));
+    }
+
+    #[test]
+    fn test_record_request_lifecycle() {
+        let collector = MetricsCollector::new();
+
+        collector.record_request_start();
+        assert_eq!(collector.get_active_connections(), 1);
+
+        collector.record_request_end(150.5, "claude-sonnet-4", 100, 200);
+        assert_eq!(collector.get_active_connections(), 0);
+
+        let (input, output) = collector.get_token_totals();
+        assert_eq!(input, 100);
+        assert_eq!(output, 200);
+    }
+
+    #[test]
+    fn test_latency_percentiles() {
+        let collector = MetricsCollector::new();
+
+        for i in 1..=100 {
+            collector.record_request_end(i as f64, "test-model", 10, 20);
+        }
+
+        let (p50, p95, p99) = collector.get_latency_percentiles();
+        assert!(p50 > 0.0 && p50 <= 100.0);
+        assert!(p95 > p50);
+        assert!(p99 > p95);
+    }
+
+    #[test]
+    fn test_model_stats() {
+        let collector = MetricsCollector::new();
+
+        collector.record_request_end(100.0, "model-a", 50, 100);
+        collector.record_request_end(200.0, "model-b", 75, 150);
+        collector.record_request_end(150.0, "model-a", 60, 120);
+
+        let stats = collector.get_model_stats();
+        assert_eq!(stats.len(), 2);
+
+        let model_a = stats.iter().find(|(name, _)| name == "model-a");
+        assert!(model_a.is_some());
+
+        if let Some((_, stats)) = model_a {
+            assert_eq!(stats.request_count.load(Ordering::Relaxed), 2);
+            assert_eq!(stats.total_input_tokens.load(Ordering::Relaxed), 110);
+            assert_eq!(stats.total_output_tokens.load(Ordering::Relaxed), 220);
+        }
+    }
+
+    #[test]
+    fn test_error_recording() {
+        let collector = MetricsCollector::new();
+
+        collector.record_error("timeout");
+        collector.record_error("auth_failed");
+        collector.record_error("timeout");
+
+        assert_eq!(collector.total_errors.load(Ordering::Relaxed), 3);
+        assert_eq!(collector.errors_by_type.len(), 2);
+    }
+
+    #[test]
+    fn test_ring_buffer_capacity() {
+        let collector = MetricsCollector::new();
+
+        for i in 0..(RING_BUFFER_CAPACITY + 100) {
+            collector.record_request_end(i as f64, "test", 10, 20);
+        }
+
+        let history = collector.get_latency_history();
+        assert!(history.len() <= RING_BUFFER_CAPACITY);
+    }
+}
