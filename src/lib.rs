@@ -2,6 +2,7 @@ pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod converters;
+pub mod dashboard;
 pub mod error;
 pub mod http_client;
 pub mod metrics;
