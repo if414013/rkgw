@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use dialoguer::{Confirm, Input, Password, Select};
-use std::io::Write;
+use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 
 /// Kiro Gateway - Rust Implementation
@@ -55,6 +55,10 @@ pub struct CliArgs {
     /// HTTP max retries
     #[arg(long, env = "HTTP_MAX_RETRIES", default_value = "3")]
     pub http_retries: u32,
+
+    /// Enable monitoring dashboard TUI
+    #[arg(long, default_value = "false")]
+    pub dashboard: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -92,6 +96,9 @@ pub struct Config {
     pub fake_reasoning_max_tokens: u32,
     #[allow(dead_code)]
     pub fake_reasoning_handling: FakeReasoningHandling,
+
+    // Dashboard
+    pub dashboard: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -189,6 +196,8 @@ impl Config {
             fake_reasoning_handling: parse_fake_reasoning_handling(
                 &std::env::var("FAKE_REASONING_HANDLING").unwrap_or_default(),
             ),
+
+            dashboard: args.dashboard,
         };
 
         Ok(config)
@@ -201,6 +210,12 @@ impl Config {
             anyhow::bail!(
                 "KIRO_CLI_DB_FILE does not exist: {}",
                 self.kiro_cli_db_file.display()
+            );
+        }
+
+        if self.dashboard && !std::io::stdout().is_terminal() {
+            anyhow::bail!(
+                "--dashboard requires a terminal (TTY). Cannot run dashboard mode when stdout is not a terminal."
             );
         }
 
