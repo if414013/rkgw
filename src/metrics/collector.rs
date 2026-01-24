@@ -61,7 +61,7 @@ impl Default for ModelStats {
 /// Metrics collector for monitoring dashboard
 pub struct MetricsCollector {
     /// Current active connections/requests
-    active_connections: AtomicU64,
+    pub active_connections: AtomicU64,
 
     /// Lifetime total request count
     total_requests: AtomicU64,

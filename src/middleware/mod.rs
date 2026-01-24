@@ -113,6 +113,8 @@ mod tests {
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
         });
 
+        let metrics = Arc::new(crate::metrics::MetricsCollector::new());
+
         AppState {
             proxy_api_key: "test-key-123".to_string(),
             model_cache: cache,
@@ -120,6 +122,7 @@ mod tests {
             http_client,
             resolver,
             config,
+            metrics,
         }
     }
 

@@ -5,8 +5,10 @@ mod auth;
 mod cache;
 mod config;
 mod converters;
+mod dashboard;
 mod error;
 mod http_client;
+mod metrics;
 mod middleware;
 mod models;
 mod resolver;
@@ -125,14 +127,15 @@ async fn main() -> Result<()> {
     add_hidden_models(&model_cache);
     tracing::info!("✅ Added hidden models to cache");
 
-    // Initialize model resolver
     let resolver = resolver::ModelResolver::new(
         model_cache.clone(),
-        std::collections::HashMap::new(), // No custom patterns for now
+        std::collections::HashMap::new(),
     );
     tracing::info!("✅ Model resolver initialized");
 
-    // Create application state
+    let metrics = Arc::new(metrics::MetricsCollector::new());
+    tracing::info!("✅ Metrics collector initialized");
+
     let app_state = routes::AppState {
         proxy_api_key: config.proxy_api_key.clone(),
         model_cache: model_cache.clone(),
@@ -140,6 +143,7 @@ async fn main() -> Result<()> {
         http_client: http_client.clone(),
         resolver,
         config: Arc::new(config.clone()),
+        metrics,
     };
 
     // Build the application with routes and middleware

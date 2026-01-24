@@ -20,12 +20,14 @@ use crate::converters::anthropic_to_kiro::build_kiro_payload as build_kiro_paylo
 use crate::converters::openai_to_kiro::build_kiro_payload;
 use crate::error::ApiError;
 use crate::http_client::KiroHttpClient;
+use crate::metrics::MetricsCollector;
 use crate::middleware;
 use crate::middleware::DEBUG_LOGGER;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
 use crate::resolver::ModelResolver;
 use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
+use std::time::Instant;
 
 /// Application version from Cargo.toml
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -39,6 +41,58 @@ pub struct AppState {
     pub http_client: Arc<KiroHttpClient>,
     pub resolver: ModelResolver,
     pub config: Arc<Config>,
+    pub metrics: Arc<MetricsCollector>,
+}
+
+/// Guard to ensure active connections are decremented on drop
+struct RequestGuard {
+    metrics: Arc<MetricsCollector>,
+    start_time: Instant,
+    model: String,
+    completed: bool,
+}
+
+impl RequestGuard {
+    fn new(metrics: Arc<MetricsCollector>, model: String) -> Self {
+        metrics.record_request_start();
+        Self {
+            metrics,
+            start_time: Instant::now(),
+            model,
+            completed: false,
+        }
+    }
+
+    fn complete(&mut self, input_tokens: u64, output_tokens: u64) {
+        if !self.completed {
+            let latency_ms = self.start_time.elapsed().as_secs_f64() * 1000.0;
+            self.metrics
+                .record_request_end(latency_ms, &self.model, input_tokens, output_tokens);
+            self.completed = true;
+        }
+    }
+}
+
+impl Drop for RequestGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            // Request failed or was cancelled - just decrement active connections
+            self.metrics
+                .active_connections
+                .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
+fn error_type_from_api_error(err: &ApiError) -> &'static str {
+    match err {
+        ApiError::AuthError(_) => "auth",
+        ApiError::ValidationError(_) => "validation",
+        ApiError::KiroApiError { .. } => "upstream",
+        ApiError::Internal(_) => "internal",
+        ApiError::InvalidModel(_) => "validation",
+        ApiError::ConfigError(_) => "config",
+    }
 }
 
 /// Health check routes (no authentication required)
@@ -135,14 +189,16 @@ async fn chat_completions_handler(
 
     // Validate request
     if request.messages.is_empty() {
-        return Err(ApiError::ValidationError(
-            "messages cannot be empty".to_string(),
-        ));
+        let err = ApiError::ValidationError("messages cannot be empty".to_string());
+        state.metrics.record_error(error_type_from_api_error(&err));
+        return Err(err);
     }
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
+
+    let mut guard = RequestGuard::new(Arc::clone(&state.metrics), model_id.clone());
 
     tracing::debug!(
         "Model resolution: {} -> {} (source: {}, verified: {})",
@@ -165,7 +221,11 @@ async fn chat_completions_handler(
     // Convert OpenAI request to Kiro format
     let kiro_payload_result =
         build_kiro_payload(&request, &conversation_id, &profile_arn, &state.config)
-            .map_err(|e| ApiError::ValidationError(e))?;
+            .map_err(|e| {
+                let err = ApiError::ValidationError(e);
+                state.metrics.record_error(error_type_from_api_error(&err));
+                err
+            })?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -186,7 +246,11 @@ async fn chat_completions_handler(
         .auth_manager
         .get_access_token()
         .await
-        .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
+        .map_err(|e| {
+            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
 
     // Get region
     let region = state.auth_manager.get_region().await;
@@ -206,12 +270,16 @@ async fn chat_completions_handler(
         .header("Content-Type", "application/json")
         .json(&kiro_payload)
         .build()
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e)))?;
+        .map_err(|e| {
+            let err = ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e));
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
 
-    // Execute request with retry logic
-    let response = state.http_client.request_with_retry(req).await?;
+    let response = state.http_client.request_with_retry(req).await.inspect_err(|e| {
+        state.metrics.record_error(error_type_from_api_error(e));
+    })?;
 
-    // Calculate input tokens from request
     let input_tokens = count_message_tokens(&request.messages, false)
         + count_tools_tokens(request.tools.as_ref(), false);
 
@@ -224,17 +292,20 @@ async fn chat_completions_handler(
         let openai_stream = crate::streaming::stream_kiro_to_openai(
             response,
             &request.model,
-            15, // first_token_timeout_secs
+            15,
             input_tokens,
         )
-        .await?;
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
 
         // Convert Result<String, ApiError> stream to bytes stream for SSE
         use bytes::Bytes;
         let byte_stream = openai_stream.map(|result| {
             result
-                .map(|s| Bytes::from(s))
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                .map(Bytes::from)
+                .map_err(|e| std::io::Error::other(e.to_string()))
         });
 
         // Return as SSE response with proper headers
@@ -244,9 +315,14 @@ async fn chat_completions_handler(
             .header("Cache-Control", "no-cache")
             .header("Connection", "keep-alive")
             .body(Body::from_stream(byte_stream))
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))?;
+            .map_err(|e| {
+                let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
+                state.metrics.record_error(error_type_from_api_error(&err));
+                err
+            })?;
 
-        // Discard debug buffers on success (streaming completes in background)
+        guard.complete(input_tokens as u64, 0);
+
         DEBUG_LOGGER.discard_buffers().await;
 
         Ok(response)
@@ -263,9 +339,19 @@ async fn chat_completions_handler(
             first_token_timeout,
             input_tokens,
         )
-        .await?;
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
 
-        // Discard debug buffers on success
+        let output_tokens = openai_response
+            .get("usage")
+            .and_then(|u| u.get("completion_tokens"))
+            .and_then(|t| t.as_u64())
+            .unwrap_or(0);
+
+        guard.complete(input_tokens as u64, output_tokens);
+
         DEBUG_LOGGER.discard_buffers().await;
 
         Ok(Json(openai_response).into_response())
@@ -299,20 +385,22 @@ async fn anthropic_messages_handler(
 
     // Validate request
     if request.messages.is_empty() {
-        return Err(ApiError::ValidationError(
-            "messages cannot be empty".to_string(),
-        ));
+        let err = ApiError::ValidationError("messages cannot be empty".to_string());
+        state.metrics.record_error(error_type_from_api_error(&err));
+        return Err(err);
     }
 
     if request.max_tokens <= 0 {
-        return Err(ApiError::ValidationError(
-            "max_tokens must be positive".to_string(),
-        ));
+        let err = ApiError::ValidationError("max_tokens must be positive".to_string());
+        state.metrics.record_error(error_type_from_api_error(&err));
+        return Err(err);
     }
 
     // Resolve model name
     let resolution = state.resolver.resolve(&request.model);
     let model_id = resolution.internal_id.clone();
+
+    let mut guard = RequestGuard::new(Arc::clone(&state.metrics), model_id.clone());
 
     tracing::debug!(
         "Model resolution: {} -> {} (source: {}, verified: {})",
@@ -335,7 +423,11 @@ async fn anthropic_messages_handler(
     // Convert Anthropic request to Kiro format
     let kiro_payload_result =
         build_kiro_payload_anthropic(&request, &conversation_id, &profile_arn, &state.config)
-            .map_err(|e| ApiError::ValidationError(e))?;
+            .map_err(|e| {
+                let err = ApiError::ValidationError(e);
+                state.metrics.record_error(error_type_from_api_error(&err));
+                err
+            })?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -356,7 +448,11 @@ async fn anthropic_messages_handler(
         .auth_manager
         .get_access_token()
         .await
-        .map_err(|e| ApiError::AuthError(format!("Failed to get access token: {}", e)))?;
+        .map_err(|e| {
+            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
 
     // Get region
     let region = state.auth_manager.get_region().await;
@@ -376,12 +472,16 @@ async fn anthropic_messages_handler(
         .header("Content-Type", "application/json")
         .json(&kiro_payload)
         .build()
-        .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e)))?;
+        .map_err(|e| {
+            let err = ApiError::Internal(anyhow::anyhow!("Failed to build request: {}", e));
+            state.metrics.record_error(error_type_from_api_error(&err));
+            err
+        })?;
 
-    // Execute request with retry logic
-    let response = state.http_client.request_with_retry(req).await?;
+    let response = state.http_client.request_with_retry(req).await.inspect_err(|e| {
+        state.metrics.record_error(error_type_from_api_error(e));
+    })?;
 
-    // Calculate input tokens from request
     let input_tokens = count_anthropic_message_tokens(
         &request.messages,
         request.system.as_ref(),
@@ -401,14 +501,17 @@ async fn anthropic_messages_handler(
             first_token_timeout,
             input_tokens,
         )
-        .await?;
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
 
         // Convert to raw SSE response (stream already contains properly formatted SSE events)
         // Don't use Axum's Sse wrapper as it would double-wrap the events
         let byte_stream = anthropic_stream.map(|result| {
             result
-                .map(|s| Bytes::from(s))
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                .map(Bytes::from)
+                .map_err(|e| std::io::Error::other(e.to_string()))
         });
 
         let response = Response::builder()
@@ -417,9 +520,14 @@ async fn anthropic_messages_handler(
             .header("Cache-Control", "no-cache")
             .header("Connection", "keep-alive")
             .body(Body::from_stream(byte_stream))
-            .map_err(|e| ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e)))?;
+            .map_err(|e| {
+                let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
+                state.metrics.record_error(error_type_from_api_error(&err));
+                err
+            })?;
 
-        // Discard debug buffers on success (streaming completes in background)
+        guard.complete(input_tokens as u64, 0);
+
         DEBUG_LOGGER.discard_buffers().await;
 
         Ok(response)
@@ -436,9 +544,19 @@ async fn anthropic_messages_handler(
             first_token_timeout,
             input_tokens,
         )
-        .await?;
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
 
-        // Discard debug buffers on success
+        let output_tokens = anthropic_response
+            .get("usage")
+            .and_then(|u| u.get("output_tokens"))
+            .and_then(|t| t.as_u64())
+            .unwrap_or(0);
+
+        guard.complete(input_tokens as u64, output_tokens);
+
         DEBUG_LOGGER.discard_buffers().await;
 
         Ok(Json(anthropic_response).into_response())
@@ -494,6 +612,8 @@ mod tests {
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
         });
 
+        let metrics = Arc::new(crate::metrics::MetricsCollector::new());
+
         AppState {
             proxy_api_key: "test-key".to_string(),
             model_cache: cache,
@@ -501,6 +621,7 @@ mod tests {
             http_client,
             resolver,
             config,
+            metrics,
         }
     }
 
