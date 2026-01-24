@@ -1,7 +1,7 @@
 use dashmap::DashMap;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Ring buffer capacity for samples (15 minutes at ~4 samples/sec)
@@ -55,6 +55,54 @@ impl ModelStats {
 impl Default for ModelStats {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Tracker for streaming requests that updates output tokens asynchronously.
+///
+/// This tracker holds an atomic counter that can be updated by the stream processing
+/// logic as usage events arrive. When the tracker is dropped (stream ends), it
+/// automatically records the final metrics with the accumulated output token count.
+pub struct StreamingMetricsTracker {
+    metrics: Arc<MetricsCollector>,
+    model: String,
+    input_tokens: u64,
+    output_tokens: Arc<AtomicU64>,
+    start_time: Instant,
+    completed: bool,
+}
+
+impl StreamingMetricsTracker {
+    pub fn new(metrics: Arc<MetricsCollector>, model: String, input_tokens: u64) -> Self {
+        metrics.record_request_start();
+        Self {
+            metrics,
+            model,
+            input_tokens,
+            output_tokens: Arc::new(AtomicU64::new(0)),
+            start_time: Instant::now(),
+            completed: false,
+        }
+    }
+
+    pub fn output_tokens_handle(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.output_tokens)
+    }
+
+    pub fn complete(&mut self) {
+        if !self.completed {
+            let latency_ms = self.start_time.elapsed().as_secs_f64() * 1000.0;
+            let output = self.output_tokens.load(Ordering::Relaxed);
+            self.metrics
+                .record_request_end(latency_ms, &self.model, self.input_tokens, output);
+            self.completed = true;
+        }
+    }
+}
+
+impl Drop for StreamingMetricsTracker {
+    fn drop(&mut self) {
+        self.complete();
     }
 }
 

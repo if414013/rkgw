@@ -288,12 +288,22 @@ async fn chat_completions_handler(
         // Streaming response
         tracing::debug!("Handling streaming response");
 
+        use crate::metrics::collector::StreamingMetricsTracker;
+        
+        let streaming_tracker = StreamingMetricsTracker::new(
+            Arc::clone(&state.metrics),
+            model_id.clone(),
+            input_tokens as u64,
+        );
+        let output_tokens_handle = streaming_tracker.output_tokens_handle();
+
         // Use proper streaming conversion from streaming module
         let openai_stream = crate::streaming::stream_kiro_to_openai(
             response,
             &request.model,
             15,
             input_tokens,
+            Some(output_tokens_handle),
         )
         .await
         .inspect_err(|e| {
@@ -302,7 +312,8 @@ async fn chat_completions_handler(
 
         // Convert Result<String, ApiError> stream to bytes stream for SSE
         use bytes::Bytes;
-        let byte_stream = openai_stream.map(|result| {
+        let byte_stream = openai_stream.map(move |result| {
+            let _tracker = &streaming_tracker;
             result
                 .map(Bytes::from)
                 .map_err(|e| std::io::Error::other(e.to_string()))
@@ -321,7 +332,7 @@ async fn chat_completions_handler(
                 err
             })?;
 
-        guard.complete(input_tokens as u64, 0);
+        std::mem::drop(guard);
 
         DEBUG_LOGGER.discard_buffers().await;
 
@@ -493,6 +504,15 @@ async fn anthropic_messages_handler(
         // Streaming response
         tracing::debug!("Handling streaming response");
 
+        use crate::metrics::collector::StreamingMetricsTracker;
+        
+        let streaming_tracker = StreamingMetricsTracker::new(
+            Arc::clone(&state.metrics),
+            model_id.clone(),
+            input_tokens as u64,
+        );
+        let output_tokens_handle = streaming_tracker.output_tokens_handle();
+
         // Convert response to Anthropic SSE stream
         let first_token_timeout = state.config.first_token_timeout;
         let anthropic_stream = crate::streaming::stream_kiro_to_anthropic(
@@ -500,6 +520,7 @@ async fn anthropic_messages_handler(
             &request.model,
             first_token_timeout,
             input_tokens,
+            Some(output_tokens_handle),
         )
         .await
         .inspect_err(|e| {
@@ -508,7 +529,8 @@ async fn anthropic_messages_handler(
 
         // Convert to raw SSE response (stream already contains properly formatted SSE events)
         // Don't use Axum's Sse wrapper as it would double-wrap the events
-        let byte_stream = anthropic_stream.map(|result| {
+        let byte_stream = anthropic_stream.map(move |result| {
+            let _tracker = &streaming_tracker;
             result
                 .map(Bytes::from)
                 .map_err(|e| std::io::Error::other(e.to_string()))
@@ -526,7 +548,7 @@ async fn anthropic_messages_handler(
                 err
             })?;
 
-        guard.complete(input_tokens as u64, 0);
+        std::mem::drop(guard);
 
         DEBUG_LOGGER.discard_buffers().await;
 

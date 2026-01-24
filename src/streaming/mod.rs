@@ -1638,6 +1638,7 @@ pub async fn stream_kiro_to_openai(
     model: &str,
     first_token_timeout_secs: u64,
     input_tokens: i32,
+    output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let completion_id = generate_completion_id();
     let created_time = chrono::Utc::now().timestamp();
@@ -1674,6 +1675,7 @@ pub async fn stream_kiro_to_openai(
         let completion_id = completion_id_clone.clone();
         let model = model_clone.clone();
         let state = state.clone();
+        let tracker = output_tokens_tracker.clone();
 
         async move {
             match event_result {
@@ -1763,7 +1765,10 @@ pub async fn stream_kiro_to_openai(
                         }
                         "usage" => {
                             if let Some(u) = event.usage {
-                                state.usage = Some(u);
+                                state.usage = Some(u.clone());
+                                if let Some(ref t) = tracker {
+                                    t.store(u.output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                             None
                         }
@@ -1930,6 +1935,7 @@ pub async fn stream_kiro_to_anthropic(
     model: &str,
     first_token_timeout_secs: u64,
     input_tokens: i32,
+    output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let message_id = generate_anthropic_message_id();
     let model = model.to_string();
@@ -1983,6 +1989,7 @@ pub async fn stream_kiro_to_anthropic(
     let anthropic_stream = kiro_stream.filter_map(move |event_result| {
         let _model = _model_clone.clone();
         let state = state.clone();
+        let tracker = output_tokens_tracker.clone();
 
         async move {
             match event_result {
@@ -2114,7 +2121,10 @@ pub async fn stream_kiro_to_anthropic(
                         }
                         "usage" => {
                             if let Some(u) = event.usage {
-                                state.usage = Some(u);
+                                state.usage = Some(u.clone());
+                                if let Some(ref t) = tracker {
+                                    t.store(u.output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                             None
                         }
