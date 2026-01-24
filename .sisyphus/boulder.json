@@ -1,8 +1,10 @@
 {
   "active_plan": null,
-  "completed_plan": "/Users/hikennoace/ai-gateway/rkgw/.sisyphus/plans/monitoring-dashboard.md",
-  "completed_at": "2026-01-24T10:10:00.000Z",
-  "session_ids": ["ses_410f6aac9ffeoOtKjrikdYDHOJ"],
-  "plan_name": "monitoring-dashboard",
-  "status": "completed"
+  "completed_plans": [
+    {
+      "name": "dashboard-fixes",
+      "completed_at": "2026-01-24T15:03:00.000Z",
+      "plan_file": ".sisyphus/plans/dashboard-fixes.md"
+    }
+  ]
 }
