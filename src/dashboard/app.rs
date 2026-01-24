@@ -32,6 +32,8 @@ pub struct DashboardApp {
     pub search_input: Input,
     pub search_query: String,
     pub show_session_view: bool,
+    pub middle_panel_height: u16,
+    pub log_panel_height: u16,
 }
 
 impl DashboardApp {
@@ -49,6 +51,8 @@ impl DashboardApp {
             search_input: Input::default(),
             search_query: String::new(),
             show_session_view: false,
+            middle_panel_height: 10,
+            log_panel_height: 15,
         }
     }
 
@@ -80,5 +84,29 @@ impl DashboardApp {
         self.search_input.reset();
         self.search_query.clear();
         self.log_scroll = 0;
+    }
+
+    pub fn increase_log_height(&mut self) {
+        if self.log_panel_height < 30 {
+            self.log_panel_height += 1;
+        }
+    }
+
+    pub fn decrease_log_height(&mut self) {
+        if self.log_panel_height > 8 {
+            self.log_panel_height -= 1;
+        }
+    }
+
+    pub fn increase_middle_height(&mut self) {
+        if self.middle_panel_height < 20 {
+            self.middle_panel_height += 1;
+        }
+    }
+
+    pub fn decrease_middle_height(&mut self) {
+        if self.middle_panel_height > 5 {
+            self.middle_panel_height -= 1;
+        }
     }
 }

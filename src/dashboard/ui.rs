@@ -13,8 +13,8 @@ pub fn render(frame: &mut Frame, app: &DashboardApp) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(10),
-            Constraint::Min(12),
+            Constraint::Length(app.middle_panel_height),
+            Constraint::Min(app.log_panel_height),
         ])
         .split(size);
 

@@ -45,6 +45,18 @@ fn handle_normal_mode(app: &mut DashboardApp, key: KeyEvent) {
         KeyCode::Char('s') => {
             app.show_session_view = !app.show_session_view;
         }
+        KeyCode::Char('+') | KeyCode::Char('=') => {
+            app.increase_log_height();
+        }
+        KeyCode::Char('-') | KeyCode::Char('_') => {
+            app.decrease_log_height();
+        }
+        KeyCode::Char('[') => {
+            app.decrease_middle_height();
+        }
+        KeyCode::Char(']') => {
+            app.increase_middle_height();
+        }
         KeyCode::Up => {
             app.log_scroll = app.log_scroll.saturating_sub(1);
         }
