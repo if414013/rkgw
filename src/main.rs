@@ -1,5 +1,7 @@
 use anyhow::Result;
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::io;
+use std::sync::{Arc, Mutex};
 
 mod auth;
 mod cache;
@@ -35,18 +37,30 @@ async fn main() -> Result<()> {
     let config = config::Config::load()?;
     config.validate()?;
 
-    // Initialize logging with a configured level
+    let log_buffer = Arc::new(Mutex::new(VecDeque::new()));
+
     let log_level = config.log_level.to_lowercase();
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&log_level));
 
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .with_target(false)
-        .with_thread_ids(false)
-        .with_file(true)
-        .with_line_number(true)
-        .init();
+    if config.dashboard {
+        use tracing_subscriber::prelude::*;
+
+        let dashboard_layer = dashboard::log_layer::DashboardLayer::new(Arc::clone(&log_buffer));
+
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(dashboard_layer)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .with_target(false)
+            .with_thread_ids(false)
+            .with_file(true)
+            .with_line_number(true)
+            .init();
+    }
 
     tracing::info!("🚀 Kiro Gateway starting...");
     tracing::info!(
@@ -143,25 +157,42 @@ async fn main() -> Result<()> {
         http_client: http_client.clone(),
         resolver,
         config: Arc::new(config.clone()),
-        metrics,
+        metrics: Arc::clone(&metrics),
     };
 
-    // Build the application with routes and middleware
     let app = build_app(app_state);
 
-    // Bind to configured host and port
     let addr = format!("{}:{}", config.server_host, config.server_port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
 
-    // Print startup banner
-    print_startup_banner(&config);
+    if config.dashboard {
+        let dashboard_metrics = Arc::clone(&metrics);
+        let dashboard_log_buffer = Arc::clone(&log_buffer);
 
-    // Start server with graceful shutdown
-    tracing::info!("🚀 Server listening on http://{}", addr);
+        let dashboard_handle = tokio::spawn(async move {
+            if let Err(e) = run_dashboard(dashboard_metrics, dashboard_log_buffer).await {
+                eprintln!("Dashboard error: {}", e);
+            }
+        });
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        tokio::select! {
+            result = axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()) => {
+                if let Err(e) = result {
+                    tracing::error!("Server error: {}", e);
+                }
+            }
+            _ = dashboard_handle => {
+                tracing::info!("Dashboard closed, shutting down server...");
+            }
+        }
+    } else {
+        print_startup_banner(&config);
+        tracing::info!("🚀 Server listening on http://{}", addr);
+
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await?;
+    }
 
     tracing::info!("👋 Server shutdown complete");
 
@@ -332,4 +363,51 @@ async fn shutdown_signal() {
             tracing::info!("Received terminate signal, initiating graceful shutdown...");
         },
     }
+}
+
+async fn run_dashboard(
+    metrics: Arc<metrics::MetricsCollector>,
+    log_buffer: Arc<Mutex<VecDeque<dashboard::app::LogEntry>>>,
+) -> io::Result<()> {
+    use crossterm::{
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    };
+    use ratatui::prelude::*;
+
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let mut app = dashboard::DashboardApp::new(metrics, log_buffer);
+
+    let original_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |panic_info| {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+        original_hook(panic_info);
+    }));
+
+    loop {
+        app.refresh_system_info();
+        app.metrics.cleanup_old_samples();
+
+        terminal.draw(|frame| {
+            dashboard::ui::render(frame, &app);
+        })?;
+
+        dashboard::event_handler::handle_events(&mut app)?;
+
+        if app.should_quit {
+            break;
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    Ok(())
 }

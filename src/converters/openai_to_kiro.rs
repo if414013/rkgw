@@ -531,6 +531,7 @@ mod tests {
             fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 4000,
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
+            dashboard: false,
         }
     }
 

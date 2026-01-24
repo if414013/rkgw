@@ -610,6 +610,7 @@ mod tests {
             fake_reasoning_enabled: false,
             fake_reasoning_max_tokens: 10000,
             fake_reasoning_handling: crate::config::FakeReasoningHandling::AsReasoningContent,
+            dashboard: false,
         });
 
         let metrics = Arc::new(crate::metrics::MetricsCollector::new());
