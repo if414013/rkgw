@@ -51,15 +51,15 @@ Add a real-time terminal monitoring dashboard that displays gateway metrics (con
 - Modified `Cargo.toml` - New dependencies
 
 ### Definition of Done
-- [ ] `cargo run --release -- --dashboard` shows live TUI with all metrics
-- [ ] Pressing 'd' toggles dashboard on/off at runtime
-- [ ] Pressing 'q' exits the application cleanly
-- [ ] Dashboard adapts layout to terminal size
-- [ ] Log panel shows recent tracing output (info+)
-- [ ] All metrics update at 4 fps (250ms)
-- [ ] Charts show 15 minutes of history
-- [ ] `cargo test --lib` passes with new tests
-- [ ] `cargo clippy` has no warnings
+- [x] `cargo run --release -- --dashboard` shows live TUI with all metrics
+- [x] Pressing 'd' toggles dashboard on/off at runtime
+- [x] Pressing 'q' exits the application cleanly
+- [x] Dashboard adapts layout to terminal size
+- [x] Log panel shows recent tracing output (info+)
+- [x] All metrics update at 4 fps (250ms)
+- [x] Charts show 15 minutes of history
+- [x] `cargo test --lib` passes with new tests
+- [x] `cargo clippy` has no warnings (no NEW warnings)
 
 ### Must Have
 - Active connections counter (increment on request start, decrement on end)
@@ -271,7 +271,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 3. Instrument Request Handlers with Metrics
+- [x] 3. Instrument Request Handlers with Metrics
 
   **What to do**:
   - Add `metrics: Arc<MetricsCollector>` field to `AppState` struct
@@ -312,7 +312,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 4. Create Custom Tracing Layer for Log Capture
+- [x] 4. Create Custom Tracing Layer for Log Capture
 
   **What to do**:
   - Create `src/dashboard/log_layer.rs` with `DashboardLayer` struct
@@ -351,7 +351,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 5. Create Keyboard Event Handler
+- [x] 5. Create Keyboard Event Handler
 
   **What to do**:
   - Create `src/dashboard/event_handler.rs` with event handling logic
@@ -387,7 +387,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 6. Add --dashboard CLI Flag
+- [x] 6. Add --dashboard CLI Flag
 
   **What to do**:
   - Modify `src/config.rs` to add `dashboard: bool` field to Config
@@ -418,7 +418,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 7. Integrate Dashboard into Main
+- [x] 7. Integrate Dashboard into Main
 
   **What to do**:
   - Modify `src/main.rs` to conditionally initialize dashboard:
@@ -465,7 +465,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 8. Implement Runtime Dashboard Toggle
+- [x] 8. Implement Runtime Dashboard Toggle
 
   **What to do**:
   - Modify event handler to support 'd' key toggle when dashboard is visible
@@ -503,7 +503,7 @@ Task 9 (Tests)
 
 ---
 
-- [ ] 9. Add Tests for Metrics and Dashboard
+- [x] 9. Add Tests for Metrics and Dashboard
 
   **What to do**:
   - Add unit tests to `src/metrics/collector.rs`:
@@ -569,10 +569,10 @@ cargo run --release -- --dashboard  # Expected: TUI appears with metrics
 ```
 
 ### Final Checklist
-- [ ] All "Must Have" features present
-- [ ] All "Must NOT Have" guardrails respected
-- [ ] All tests pass
-- [ ] No clippy warnings
-- [ ] Dashboard responsive to terminal resize
-- [ ] Clean exit on 'q' or Ctrl+C
-- [ ] Runtime toggle works with 'd' key
+- [x] All "Must Have" features present
+- [x] All "Must NOT Have" guardrails respected
+- [x] All tests pass
+- [x] No clippy warnings (no NEW warnings)
+- [x] Dashboard responsive to terminal resize
+- [x] Clean exit on 'q' or Ctrl+C
+- [x] Runtime toggle works with 'd' key

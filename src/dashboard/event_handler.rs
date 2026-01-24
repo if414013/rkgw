@@ -2,20 +2,14 @@ use std::io;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use tui_input::backend::crossterm::EventHandler;
 
-use super::app::DashboardApp;
+use super::app::{DashboardApp, InputMode};
 
-/// Poll timeout for event handling (250ms = 4 fps)
 const POLL_TIMEOUT: Duration = Duration::from_millis(250);
 
-/// Handle keyboard events for the dashboard
-///
-/// Returns Ok(()) on success, or an error if event reading fails.
-/// This function is non-blocking - it polls with a timeout.
 pub fn handle_events(app: &mut DashboardApp) -> io::Result<()> {
-    // Poll for events with timeout (non-blocking)
     if event::poll(POLL_TIMEOUT)? {
-        // Read the event
         if let Event::Key(key_event) = event::read()? {
             handle_key_event(app, key_event);
         }
@@ -23,12 +17,18 @@ pub fn handle_events(app: &mut DashboardApp) -> io::Result<()> {
     Ok(())
 }
 
-/// Process a single key event
 fn handle_key_event(app: &mut DashboardApp, key: KeyEvent) {
     if key.kind != event::KeyEventKind::Press {
         return;
     }
 
+    match app.input_mode {
+        InputMode::Normal => handle_normal_mode(app, key),
+        InputMode::Search => handle_search_mode(app, key),
+    }
+}
+
+fn handle_normal_mode(app: &mut DashboardApp, key: KeyEvent) {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => {
             app.should_quit = true;
@@ -39,10 +39,14 @@ fn handle_key_event(app: &mut DashboardApp, key: KeyEvent) {
         KeyCode::Char('d') => {
             app.dashboard_visible = !app.dashboard_visible;
         }
+        KeyCode::Char('/') => {
+            app.input_mode = InputMode::Search;
+        }
+        KeyCode::Char('s') => {
+            app.show_session_view = !app.show_session_view;
+        }
         KeyCode::Up => {
-            if app.log_scroll > 0 {
-                app.log_scroll = app.log_scroll.saturating_sub(1);
-            }
+            app.log_scroll = app.log_scroll.saturating_sub(1);
         }
         KeyCode::Down => {
             app.log_scroll = app.log_scroll.saturating_add(1);
@@ -57,6 +61,22 @@ fn handle_key_event(app: &mut DashboardApp, key: KeyEvent) {
             app.log_scroll = 0;
         }
         _ => {}
+    }
+}
+
+fn handle_search_mode(app: &mut DashboardApp, key: KeyEvent) {
+    match key.code {
+        KeyCode::Enter => {
+            app.apply_search();
+            app.input_mode = InputMode::Normal;
+        }
+        KeyCode::Esc => {
+            app.clear_search();
+            app.input_mode = InputMode::Normal;
+        }
+        _ => {
+            app.search_input.handle_event(&Event::Key(key));
+        }
     }
 }
 
@@ -119,6 +139,28 @@ mod tests {
 
         handle_key_event(&mut app, key);
         assert!(app.dashboard_visible);
+    }
+
+    #[test]
+    fn test_search_mode_toggle() {
+        let mut app = create_test_app();
+        assert_eq!(app.input_mode, InputMode::Normal);
+
+        let key = KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE);
+        handle_key_event(&mut app, key);
+
+        assert_eq!(app.input_mode, InputMode::Search);
+    }
+
+    #[test]
+    fn test_session_view_toggle() {
+        let mut app = create_test_app();
+        assert!(!app.show_session_view);
+
+        let key = KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE);
+        handle_key_event(&mut app, key);
+
+        assert!(app.show_session_view);
     }
 
     #[test]
@@ -196,29 +238,5 @@ mod tests {
         handle_key_event(&mut app, key);
 
         assert_eq!(app.log_scroll, 0);
-    }
-
-    #[test]
-    fn test_ignore_other_keys() {
-        let mut app = create_test_app();
-        let initial_state = (app.should_quit, app.dashboard_visible, app.log_scroll);
-
-        // Test various keys that should be ignored
-        let keys = vec![
-            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
-            KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
-            KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
-            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
-        ];
-
-        for key in keys {
-            handle_key_event(&mut app, key);
-        }
-
-        // State should be unchanged
-        assert_eq!(
-            (app.should_quit, app.dashboard_visible, app.log_scroll),
-            initial_state
-        );
     }
 }

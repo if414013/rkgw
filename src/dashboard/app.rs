@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
+use tui_input::Input;
 
 use crate::metrics::MetricsCollector;
 
-/// Log entry for dashboard display
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub timestamp: chrono::DateTime<chrono::Utc>,
@@ -13,26 +13,28 @@ pub struct LogEntry {
     pub message: String,
 }
 
-/// Dashboard application state
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
+pub enum InputMode {
+    #[default]
+    Normal,
+    Search,
+}
+
 pub struct DashboardApp {
-    /// Shared metrics collector
     pub metrics: Arc<MetricsCollector>,
-    /// Log buffer for display
     pub log_buffer: Arc<Mutex<VecDeque<LogEntry>>>,
-    /// System info for CPU/memory
     pub system: System,
-    /// Current process ID
     pub pid: Pid,
-    /// Should quit flag
     pub should_quit: bool,
-    /// Dashboard visible flag
     pub dashboard_visible: bool,
-    /// Log scroll position
     pub log_scroll: usize,
+    pub input_mode: InputMode,
+    pub search_input: Input,
+    pub search_query: String,
+    pub show_session_view: bool,
 }
 
 impl DashboardApp {
-    /// Create a new dashboard application
     pub fn new(metrics: Arc<MetricsCollector>, log_buffer: Arc<Mutex<VecDeque<LogEntry>>>) -> Self {
         let pid = Pid::from_u32(std::process::id());
         Self {
@@ -43,16 +45,18 @@ impl DashboardApp {
             should_quit: false,
             dashboard_visible: true,
             log_scroll: 0,
+            input_mode: InputMode::Normal,
+            search_input: Input::default(),
+            search_query: String::new(),
+            show_session_view: false,
         }
     }
 
-    /// Refresh system information (CPU and memory for this process)
     pub fn refresh_system_info(&mut self) {
         self.system
             .refresh_processes(ProcessesToUpdate::Some(&[self.pid]), false);
     }
 
-    /// Get current CPU usage percentage for this process
     pub fn get_cpu_usage(&self) -> f32 {
         self.system
             .process(self.pid)
@@ -60,11 +64,21 @@ impl DashboardApp {
             .unwrap_or(0.0)
     }
 
-    /// Get memory usage in bytes for this process
     pub fn get_memory_usage(&self) -> u64 {
         self.system
             .process(self.pid)
             .map(|p| p.memory())
             .unwrap_or(0)
+    }
+
+    pub fn apply_search(&mut self) {
+        self.search_query = self.search_input.value().to_string();
+        self.log_scroll = 0;
+    }
+
+    pub fn clear_search(&mut self) {
+        self.search_input.reset();
+        self.search_query.clear();
+        self.log_scroll = 0;
     }
 }

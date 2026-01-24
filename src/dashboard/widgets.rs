@@ -1,8 +1,11 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Sparkline};
+use std::sync::atomic::Ordering;
+use tui_input::Input;
 
 use super::app::LogEntry;
+use crate::metrics::ModelStats;
 
 pub fn render_connections_gauge(active: u64) -> Paragraph<'static> {
     let color = if active > 10 {
@@ -148,6 +151,10 @@ pub fn render_latency_block(p50: f64, p95: f64, p99: f64) -> Paragraph<'static> 
 }
 
 pub fn render_log_panel(logs: &[LogEntry], scroll: usize) -> List<'static> {
+    render_log_panel_with_title(logs, scroll, "Logs (↑/↓ to scroll)")
+}
+
+pub fn render_log_panel_with_title(logs: &[LogEntry], scroll: usize, title: &str) -> List<'static> {
     let items: Vec<ListItem> = logs
         .iter()
         .skip(scroll)
@@ -181,6 +188,74 @@ pub fn render_log_panel(logs: &[LogEntry], scroll: usize) -> List<'static> {
     List::new(items).block(
         Block::default()
             .borders(Borders::ALL)
-            .title("Logs (↑/↓ to scroll)"),
+            .title(title.to_string()),
     )
+}
+
+pub fn render_token_usage_panel(
+    model_stats: &[(String, ModelStats)],
+    _show_session: bool,
+) -> Paragraph<'static> {
+    let mut lines: Vec<Line> = Vec::new();
+
+    if model_stats.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No requests yet",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (model, stats) in model_stats {
+            let input = stats.total_input_tokens.load(Ordering::Relaxed);
+            let output = stats.total_output_tokens.load(Ordering::Relaxed);
+            let requests = stats.request_count.load(Ordering::Relaxed);
+
+            let model_short = if model.len() > 15 {
+                format!("{}...", &model[..12])
+            } else {
+                model.clone()
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("{:<15} ", model_short),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(format!("{}r ", requests), Style::default().fg(Color::Gray)),
+            ]));
+
+            lines.push(Line::from(vec![
+                Span::styled("  in:", Style::default().fg(Color::DarkGray)),
+                Span::styled(format_tokens(input), Style::default().fg(Color::Green)),
+                Span::styled(" out:", Style::default().fg(Color::DarkGray)),
+                Span::styled(format_tokens(output), Style::default().fg(Color::Yellow)),
+            ]));
+        }
+    }
+
+    Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Token Usage (s toggle)"),
+    )
+}
+
+fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1_000_000 {
+        format!("{:.1}M", tokens as f64 / 1_000_000.0)
+    } else if tokens >= 1_000 {
+        format!("{:.1}K", tokens as f64 / 1_000.0)
+    } else {
+        format!("{}", tokens)
+    }
+}
+
+pub fn render_search_input(input: &Input) -> Paragraph<'static> {
+    Paragraph::new(input.value().to_string())
+        .style(Style::default().fg(Color::Yellow))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Search (Enter to apply, Esc to cancel)")
+                .border_style(Style::default().fg(Color::Yellow)),
+        )
 }

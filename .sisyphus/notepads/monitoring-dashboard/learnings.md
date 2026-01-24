@@ -227,3 +227,56 @@ Implemented 12 unit tests covering:
   - src/routes/mod.rs
   - src/converters/openai_to_kiro.rs
 
+
+## Runtime Dashboard Toggle Implementation (2026-01-24)
+
+### Terminal State Management Pattern
+Successfully implemented runtime toggle between dashboard TUI and normal log output:
+
+1. **State Tracking**: Added `was_visible` variable to detect visibility changes
+   - Compares `app.dashboard_visible` (toggled by 'd' key) with previous state
+   - Only performs terminal mode switches when state actually changes
+   - Prevents redundant terminal operations on every loop iteration
+
+2. **Terminal Mode Switching**:
+   - **TO dashboard**: `enable_raw_mode()` → `EnterAlternateScreen` → `clear()`
+   - **FROM dashboard**: `LeaveAlternateScreen` → `disable_raw_mode()` → print message
+   - Order matters: alternate screen must be entered/left while in appropriate mode
+
+3. **Event Polling in Both Modes**:
+   - Dashboard mode: Raw mode already enabled, poll normally
+   - Log mode: Temporarily enable raw mode → poll events → disable raw mode
+   - Required because crossterm event polling needs raw mode to capture keypresses
+   - Without this, 'd' and 'q' keys wouldn't work in log mode
+
+4. **Log Display on Toggle**:
+   - When switching to log mode, prints last 20 log entries from buffer
+   - Uses `.iter().rev().take(20).rev()` pattern to get recent entries in chronological order
+   - Formats with timestamp, level, and message for consistency
+
+### Key Technical Decisions
+
+1. **Conditional Rendering**: Only call `terminal.draw()` when `dashboard_visible == true`
+   - In log mode, use `std::thread::sleep(100ms)` to avoid busy-waiting
+   - Keeps CPU usage low while still responsive to key events
+
+2. **Cleanup on Exit**: Check `dashboard_visible` before final cleanup
+   - If exiting from log mode, terminal already in normal state
+   - Only call `disable_raw_mode()` and `LeaveAlternateScreen` if still in dashboard mode
+   - Prevents double-cleanup errors
+
+3. **Log Buffer Cloning**: Changed `log_buffer` parameter usage to `.clone()`
+   - Needed to access buffer in toggle handler without moving ownership
+   - Arc clone is cheap (just reference count increment)
+
+### Integration Points
+- Event handler already toggles `app.dashboard_visible` flag (no changes needed)
+- Log layer continues capturing to buffer in both modes
+- Metrics collection unaffected by display mode
+- All keyboard shortcuts work in both modes
+
+### Verification
+- ✅ `cargo build --release` succeeds
+- ✅ No clippy warnings for main.rs
+- ✅ Terminal properly restored on exit from either mode
+- ✅ No log entries lost during toggle
