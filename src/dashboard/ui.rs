@@ -39,8 +39,8 @@ fn render_top_row(frame: &mut Frame, app: &DashboardApp, area: Rect) {
     let cpu_gauge = widgets::render_cpu_gauge(cpu);
     frame.render_widget(cpu_gauge, top_chunks[1]);
 
-    let (used, total) = app.get_memory_usage();
-    let mem_gauge = widgets::render_memory_gauge(used, total);
+    let memory_bytes = app.get_memory_usage();
+    let mem_gauge = widgets::render_process_memory_gauge(memory_bytes);
     frame.render_widget(mem_gauge, top_chunks[2]);
 }
 

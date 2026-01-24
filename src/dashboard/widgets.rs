@@ -70,6 +70,31 @@ pub fn render_memory_gauge(used: u64, total: u64) -> Gauge<'static> {
         .label(format!("{:.1}/{:.1} GB", used_gb, total_gb))
 }
 
+pub fn render_process_memory_gauge(bytes: u64) -> Paragraph<'static> {
+    let mb = bytes as f64 / 1024.0 / 1024.0;
+
+    let (value_str, color) = if mb > 500.0 {
+        (format!("{:.0} MB", mb), Color::Red)
+    } else if mb > 200.0 {
+        (format!("{:.0} MB", mb), Color::Yellow)
+    } else {
+        (format!("{:.1} MB", mb), Color::Green)
+    };
+
+    let text = Line::from(vec![Span::styled(
+        value_str,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    )]);
+
+    Paragraph::new(text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Memory (rkgw)"),
+        )
+        .centered()
+}
+
 #[allow(dead_code)]
 pub fn render_gauge(title: &str, value: f64, max: f64) -> Gauge<'static> {
     let ratio = (value / max).clamp(0.0, 1.0);
