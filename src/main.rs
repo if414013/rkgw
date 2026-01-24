@@ -381,7 +381,8 @@ async fn run_dashboard(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = dashboard::DashboardApp::new(metrics, log_buffer);
+    let mut app = dashboard::DashboardApp::new(metrics, log_buffer.clone());
+    let mut was_visible = true;
 
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
@@ -391,22 +392,60 @@ async fn run_dashboard(
     }));
 
     loop {
+        if app.dashboard_visible != was_visible {
+            if app.dashboard_visible {
+                enable_raw_mode()?;
+                execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+                terminal.clear()?;
+            } else {
+                execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+                disable_raw_mode()?;
+                println!("\n--- Dashboard hidden. Press 'd' to show, 'q' to quit ---\n");
+
+                if let Ok(logs) = log_buffer.lock() {
+                    for entry in logs.iter().rev().take(20).rev() {
+                        println!(
+                            "[{}] {:5} {}",
+                            entry.timestamp.format("%H:%M:%S"),
+                            entry.level,
+                            entry.message
+                        );
+                    }
+                }
+            }
+            was_visible = app.dashboard_visible;
+        }
+
         app.refresh_system_info();
         app.metrics.cleanup_old_samples();
 
-        terminal.draw(|frame| {
-            dashboard::ui::render(frame, &app);
-        })?;
+        if app.dashboard_visible {
+            terminal.draw(|frame| {
+                dashboard::ui::render(frame, &app);
+            })?;
+        } else {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        if !app.dashboard_visible {
+            enable_raw_mode()?;
+        }
 
         dashboard::event_handler::handle_events(&mut app)?;
+
+        if !app.dashboard_visible {
+            disable_raw_mode()?;
+        }
 
         if app.should_quit {
             break;
         }
     }
 
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    if app.dashboard_visible {
+        disable_raw_mode()?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    }
     terminal.show_cursor()?;
 
     Ok(())
