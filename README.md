@@ -53,6 +53,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 | 📡 **Streaming** | Full SSE streaming support |
 | 🔄 **Retry Logic** | Automatic retries on errors |
 | 🔐 **Smart token management** | Automatic refresh before expiration |
+| 📊 **Live Dashboard** | Real-time TUI with metrics, logs, and token usage (toggle with `--dashboard` or press `d`) |
 
 ---
 
