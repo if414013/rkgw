@@ -14,3 +14,6 @@ pub mod streaming;
 pub mod thinking_parser;
 pub mod tokenizer;
 pub mod utils;
+
+#[cfg(feature = "bench")]
+pub mod bench;

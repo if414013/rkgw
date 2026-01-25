@@ -11,6 +11,7 @@ readme = "README.md"
 [features]
 default = []
 test-utils = []
+bench = ["hdrhistogram", "async-stream", "rand"]
 
 [dependencies]
 # Web framework
@@ -69,6 +70,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Interactive prompts
 dialoguer = "0.11"
 
+# Benchmark dependencies (optional)
+hdrhistogram = { version = "7", optional = true }
+async-stream = { version = "0.3", optional = true }
+rand = { version = "0.8", optional = true }
+
 [dev-dependencies]
 # Testing
 tokio-test = "0.4"
@@ -83,3 +89,9 @@ strip = true
 [[bin]]
 name = "kiro-gateway"
 path = "src/main.rs"
+
+[[bench]]
+name = "gateway_benchmark"
+path = "benches/benchmark.rs"
+harness = false
+required-features = ["bench"]
