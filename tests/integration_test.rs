@@ -18,6 +18,7 @@ use kiro_gateway::{
     cache::ModelCache,
     config::{Config, DebugMode, FakeReasoningHandling},
     http_client::KiroHttpClient,
+    metrics::MetricsCollector,
     resolver::ModelResolver,
     routes::{self, AppState},
 };
@@ -79,7 +80,10 @@ fn create_test_app_state() -> AppState {
         fake_reasoning_enabled: true,
         fake_reasoning_max_tokens: 4000,
         fake_reasoning_handling: FakeReasoningHandling::AsReasoningContent,
+        dashboard: false,
     });
+
+    let metrics = Arc::new(MetricsCollector::new());
 
     AppState {
         proxy_api_key: "test-api-key-secret".to_string(),
@@ -88,6 +92,7 @@ fn create_test_app_state() -> AppState {
         http_client,
         resolver,
         config,
+        metrics,
     }
 }
 

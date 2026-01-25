@@ -128,7 +128,10 @@ async fn main() -> Result<()> {
 
     tracing::info!("📊 Models from Kiro API:");
     for model in &models {
-        tracing::info!("{}", serde_json::to_string_pretty(model).unwrap_or_default());
+        tracing::info!(
+            "{}",
+            serde_json::to_string_pretty(model).unwrap_or_default()
+        );
     }
 
     model_cache.update(models);
@@ -141,10 +144,8 @@ async fn main() -> Result<()> {
     add_hidden_models(&model_cache);
     tracing::info!("✅ Added hidden models to cache");
 
-    let resolver = resolver::ModelResolver::new(
-        model_cache.clone(),
-        std::collections::HashMap::new(),
-    );
+    let resolver =
+        resolver::ModelResolver::new(model_cache.clone(), std::collections::HashMap::new());
     tracing::info!("✅ Model resolver initialized");
 
     let metrics = Arc::new(metrics::MetricsCollector::new());

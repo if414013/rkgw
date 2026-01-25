@@ -1039,9 +1039,10 @@ pub async fn parse_kiro_stream_with_thinking(
                             }));
                         }
                         drop(tool_acc_guard);
-                        events.push(Err(ApiError::Internal(
-                            anyhow::anyhow!("Stream error: {}", e),
-                        )));
+                        events.push(Err(ApiError::Internal(anyhow::anyhow!(
+                            "Stream error: {}",
+                            e
+                        ))));
                         futures::stream::iter(events)
                     }
                 }
@@ -1767,7 +1768,10 @@ pub async fn stream_kiro_to_openai(
                             if let Some(u) = event.usage {
                                 state.usage = Some(u.clone());
                                 if let Some(ref t) = tracker {
-                                    t.store(u.output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                                    t.store(
+                                        u.output_tokens as u64,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                    );
                                 }
                             }
                             None
@@ -2123,7 +2127,10 @@ pub async fn stream_kiro_to_anthropic(
                             if let Some(u) = event.usage {
                                 state.usage = Some(u.clone());
                                 if let Some(ref t) = tracker {
-                                    t.store(u.output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                                    t.store(
+                                        u.output_tokens as u64,
+                                        std::sync::atomic::Ordering::Relaxed,
+                                    );
                                 }
                             }
                             None

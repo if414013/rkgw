@@ -220,12 +220,13 @@ async fn chat_completions_handler(
 
     // Convert OpenAI request to Kiro format
     let kiro_payload_result =
-        build_kiro_payload(&request, &conversation_id, &profile_arn, &state.config)
-            .map_err(|e| {
+        build_kiro_payload(&request, &conversation_id, &profile_arn, &state.config).map_err(
+            |e| {
                 let err = ApiError::ValidationError(e);
                 state.metrics.record_error(error_type_from_api_error(&err));
                 err
-            })?;
+            },
+        )?;
 
     let kiro_payload = kiro_payload_result.payload;
 
@@ -242,15 +243,11 @@ async fn chat_completions_handler(
     }
 
     // Get access token
-    let access_token = state
-        .auth_manager
-        .get_access_token()
-        .await
-        .map_err(|e| {
-            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+    let access_token = state.auth_manager.get_access_token().await.map_err(|e| {
+        let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
+        state.metrics.record_error(error_type_from_api_error(&err));
+        err
+    })?;
 
     // Get region
     let region = state.auth_manager.get_region().await;
@@ -276,9 +273,13 @@ async fn chat_completions_handler(
             err
         })?;
 
-    let response = state.http_client.request_with_retry(req).await.inspect_err(|e| {
-        state.metrics.record_error(error_type_from_api_error(e));
-    })?;
+    let response = state
+        .http_client
+        .request_with_retry(req)
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
 
     let input_tokens = count_message_tokens(&request.messages, false)
         + count_tools_tokens(request.tools.as_ref(), false);
@@ -289,7 +290,7 @@ async fn chat_completions_handler(
         tracing::debug!("Handling streaming response");
 
         use crate::metrics::collector::StreamingMetricsTracker;
-        
+
         let streaming_tracker = StreamingMetricsTracker::new(
             Arc::clone(&state.metrics),
             model_id.clone(),
@@ -455,15 +456,11 @@ async fn anthropic_messages_handler(
     }
 
     // Get access token
-    let access_token = state
-        .auth_manager
-        .get_access_token()
-        .await
-        .map_err(|e| {
-            let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+    let access_token = state.auth_manager.get_access_token().await.map_err(|e| {
+        let err = ApiError::AuthError(format!("Failed to get access token: {}", e));
+        state.metrics.record_error(error_type_from_api_error(&err));
+        err
+    })?;
 
     // Get region
     let region = state.auth_manager.get_region().await;
@@ -489,9 +486,13 @@ async fn anthropic_messages_handler(
             err
         })?;
 
-    let response = state.http_client.request_with_retry(req).await.inspect_err(|e| {
-        state.metrics.record_error(error_type_from_api_error(e));
-    })?;
+    let response = state
+        .http_client
+        .request_with_retry(req)
+        .await
+        .inspect_err(|e| {
+            state.metrics.record_error(error_type_from_api_error(e));
+        })?;
 
     let input_tokens = count_anthropic_message_tokens(
         &request.messages,
@@ -505,7 +506,7 @@ async fn anthropic_messages_handler(
         tracing::debug!("Handling streaming response");
 
         use crate::metrics::collector::StreamingMetricsTracker;
-        
+
         let streaming_tracker = StreamingMetricsTracker::new(
             Arc::clone(&state.metrics),
             model_id.clone(),
