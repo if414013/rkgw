@@ -24,6 +24,44 @@ use super::core::{
 // OpenAI-specific Message Processing
 // ==================================================================================================
 
+/// Converts OpenAI content to MessageContent.
+///
+/// OpenAI content can be:
+/// - String: "Hello, world!"
+/// - List of content blocks: [{"type": "text", "text": "Hello"}, {"type": "image_url", "image_url": {"url": "..."}}]
+fn convert_openai_content(content: &Value) -> MessageContent {
+    if let Some(text) = content.as_str() {
+        return MessageContent::Text(text.to_string());
+    }
+
+    if let Some(blocks) = content.as_array() {
+        let content_blocks: Vec<ContentBlock> = blocks
+            .iter()
+            .filter_map(|block| {
+                let block_type = block.get("type")?.as_str()?;
+                match block_type {
+                    "text" => {
+                        let text = block.get("text")?.as_str()?.to_string();
+                        Some(ContentBlock::Text { text })
+                    }
+                    "image_url" => {
+                        let image_url_obj = block.get("image_url")?;
+                        let url = image_url_obj.get("url")?.as_str()?.to_string();
+                        Some(ContentBlock::ImageUrl {
+                            image_url: super::core::ImageUrl { url },
+                        })
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+
+        return MessageContent::Blocks(content_blocks);
+    }
+
+    MessageContent::Text(content.to_string())
+}
+
 /// Extracts tool results from OpenAI message content.
 fn extract_tool_results_from_openai(content: &MessageContent) -> Vec<ToolResult> {
     let mut tool_results = Vec::new();
@@ -137,12 +175,10 @@ pub fn convert_openai_messages_to_unified(
             }
 
             // Convert regular message
-            let content_text = match &msg.content {
-                Some(serde_json::Value::String(s)) => s.clone(),
-                Some(v) => v.to_string(),
-                None => String::new(),
+            let content = match &msg.content {
+                Some(v) => convert_openai_content(v),
+                None => MessageContent::Text(String::new()),
             };
-            let content = MessageContent::Text(content_text);
 
             let tool_calls = if msg.role == "assistant" {
                 let calls = extract_tool_calls_from_openai(msg);
@@ -690,6 +726,31 @@ mod tests {
 
         let (_, unified) = convert_openai_messages_to_unified(&messages);
         assert_eq!(unified.len(), 1);
+    }
+
+    #[test]
+    fn test_convert_openai_messages_with_image() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: Some(json!([
+                {"type": "text", "text": "What's in this image?"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQSkZJRg=="}}
+            ])),
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+
+        let (_, unified) = convert_openai_messages_to_unified(&messages);
+        assert_eq!(unified.len(), 1);
+        assert_eq!(unified[0].role, "user");
+
+        // Verify images were extracted
+        assert!(unified[0].images.is_some());
+        let images = unified[0].images.as_ref().unwrap();
+        assert_eq!(images.len(), 1);
+        assert_eq!(images[0].media_type, "image/jpeg");
+        assert_eq!(images[0].data, "/9j/4AAQSkZJRg==");
     }
 
     #[test]
