@@ -69,11 +69,26 @@ impl KiroHttpClient {
         let max_retries = if enable_retry { self.max_retries } else { 0 };
         let mut attempt = 0;
 
+        // Log request details
+        let method = request.method().clone();
+        let url = request.url().clone();
+        tracing::debug!(
+            method = %method,
+            url = %url,
+            "Sending HTTP request"
+        );
+
         loop {
             // Clone the request for this attempt
             let req = request.try_clone().ok_or_else(|| {
                 ApiError::Internal(anyhow::anyhow!("Request body is not cloneable"))
             })?;
+
+            tracing::debug!(
+                attempt = attempt + 1,
+                max_retries = max_retries,
+                "Executing request attempt"
+            );
 
             // Execute request
             let result = self.client.execute(req).await;
@@ -81,11 +96,28 @@ impl KiroHttpClient {
             match result {
                 Ok(response) => {
                     let status = response.status();
+                    let headers = response.headers().clone();
+
+                    tracing::debug!(
+                        status = %status,
+                        "Received HTTP response"
+                    );
 
                     // Success
                     if status.is_success() {
+                        tracing::debug!(
+                            status = %status,
+                            "Request successful"
+                        );
                         return Ok(response);
                     }
+
+                    // Log response headers for debugging errors
+                    tracing::warn!(
+                        status = %status,
+                        headers = ?headers,
+                        "Received error response"
+                    );
 
                     // Handle specific error codes
                     match status.as_u16() {
@@ -142,6 +174,23 @@ impl KiroHttpClient {
 
                     // Non-retryable error or max retries exceeded
                     let error_text = response.text().await.unwrap_or_default();
+
+                    // Always print to stderr regardless of log level
+                    eprintln!(
+                        "[HTTP ERROR] status={} url={} attempt={} response_body={}",
+                        status.as_u16(),
+                        url,
+                        attempt + 1,
+                        error_text
+                    );
+
+                    tracing::error!(
+                        status = status.as_u16(),
+                        url = %url,
+                        response_body = %error_text,
+                        attempt = attempt + 1,
+                        "HTTP request failed with error response"
+                    );
                     return Err(ApiError::KiroApiError {
                         status: status.as_u16(),
                         message: error_text,
@@ -149,6 +198,30 @@ impl KiroHttpClient {
                 }
 
                 Err(e) => {
+                    // Categorize the error for better debugging
+                    let error_kind = if e.is_timeout() {
+                        "timeout"
+                    } else if e.is_connect() {
+                        "connection_failed"
+                    } else if e.is_request() {
+                        "request_error"
+                    } else if e.is_body() {
+                        "body_error"
+                    } else if e.is_decode() {
+                        "decode_error"
+                    } else {
+                        "unknown"
+                    };
+
+                    tracing::warn!(
+                        error_kind = error_kind,
+                        error = %e,
+                        error_debug = ?e,
+                        url = %url,
+                        attempt = attempt + 1,
+                        "HTTP request error"
+                    );
+
                     // Network error - retry with backoff
                     if attempt < max_retries {
                         let delay = self.calculate_backoff_delay(attempt);
@@ -165,9 +238,27 @@ impl KiroHttpClient {
                         continue;
                     }
 
-                    return Err(ApiError::Internal(anyhow::anyhow!(
-                        "HTTP request failed: {}",
+                    tracing::error!(
+                        error_kind = error_kind,
+                        error = %e,
+                        url = %url,
+                        total_attempts = attempt + 1,
+                        "HTTP request failed after all retries"
+                    );
+
+                    // Always print to stderr regardless of log level
+                    eprintln!(
+                        "[HTTP ERROR] kind={} url={} attempts={} error={:?}",
+                        error_kind,
+                        url,
+                        attempt + 1,
                         e
+                    );
+
+                    return Err(ApiError::Internal(anyhow::anyhow!(
+                        "HTTP request failed: {} (kind: {})",
+                        e,
+                        error_kind
                     )));
                 }
             }
