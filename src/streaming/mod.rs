@@ -594,14 +594,10 @@ pub fn parse_kiro_event_with_accumulator(
     // These are processed through the accumulator
     if json.get("name").is_some() || json.get("input").is_some() || json.get("stop").is_some() {
         tracing::info!(
-            "Tool event detected: name={:?}, input={:?}, stop={:?}",
-            json.get("name"),
-            json.get("input").map(|v| if v.is_string() {
-                format!("string({} chars)", v.as_str().unwrap_or("").len())
-            } else {
-                format!("{:?}", v)
-            }),
-            json.get("stop")
+            "Tool event: name={}, input_len={}, stop={}",
+            json.get("name").and_then(|v| v.as_str()).unwrap_or("-"),
+            json.get("input").map(|v| v.as_str().map(|s| s.len()).unwrap_or(0)).unwrap_or(0),
+            json.get("stop").and_then(|v| v.as_bool()).map(|b| b.to_string()).unwrap_or("-".to_string())
         );
         if let Some(completed_tool) = tool_acc.process_event(json) {
             return Some(KiroEvent {
