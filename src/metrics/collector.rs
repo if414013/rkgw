@@ -40,16 +40,6 @@ impl ModelStats {
         self.total_output_tokens
             .fetch_add(output_tokens, Ordering::Relaxed);
     }
-
-    /// Get average latency in milliseconds
-    pub fn avg_latency_ms(&self) -> f64 {
-        let count = self.request_count.load(Ordering::Relaxed);
-        if count == 0 {
-            return 0.0;
-        }
-        let total = self.total_latency_ms.load(Ordering::Relaxed);
-        total as f64 / count as f64
-    }
 }
 
 impl Default for ModelStats {
@@ -234,54 +224,6 @@ impl MetricsCollector {
         (p50, p95, p99)
     }
 
-    /// Get request rate (requests per second, last minute)
-    pub fn get_request_rate(&self) -> f64 {
-        let samples = match self.request_rate_samples.lock() {
-            Ok(s) => s,
-            Err(_) => return 0.0,
-        };
-
-        if samples.is_empty() {
-            return 0.0;
-        }
-
-        let now = Instant::now();
-        let one_minute_ago = now - Duration::from_secs(60);
-
-        let recent_count: u64 = samples
-            .iter()
-            .filter(|(time, _)| *time >= one_minute_ago)
-            .map(|(_, count)| count)
-            .sum();
-
-        recent_count as f64 / 60.0
-    }
-
-    /// Get error rate (errors per second, last minute)
-    pub fn get_error_rate(&self) -> f64 {
-        let total_errors = self.total_errors.load(Ordering::Relaxed);
-        let total_requests = self.total_requests.load(Ordering::Relaxed);
-
-        if total_requests == 0 {
-            return 0.0;
-        }
-
-        (total_errors as f64 / total_requests as f64) * 100.0
-    }
-
-    /// Get total token counts (input, output)
-    pub fn get_token_totals(&self) -> (u64, u64) {
-        let counts = match self.token_counts.lock() {
-            Ok(c) => c,
-            Err(_) => return (0, 0),
-        };
-
-        let total_input: u64 = counts.iter().map(|(_, input, _)| input).sum();
-        let total_output: u64 = counts.iter().map(|(_, _, output)| output).sum();
-
-        (total_input, total_output)
-    }
-
     /// Get per-model statistics
     pub fn get_model_stats(&self) -> Vec<(String, ModelStats)> {
         self.per_model_stats
@@ -324,16 +266,6 @@ impl MetricsCollector {
         }
     }
 
-    /// Get latency history for sparkline display
-    pub fn get_latency_history(&self) -> Vec<f64> {
-        let samples = match self.latency_samples.lock() {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
-
-        samples.iter().map(|(_, lat)| *lat).collect()
-    }
-
     /// Get request rate history for sparkline display
     pub fn get_request_rate_history(&self) -> Vec<u64> {
         let samples = match self.request_rate_samples.lock() {
@@ -359,7 +291,6 @@ mod tests {
     fn test_metrics_collector_new() {
         let collector = MetricsCollector::new();
         assert_eq!(collector.get_active_connections(), 0);
-        assert_eq!(collector.get_token_totals(), (0, 0));
     }
 
     #[test]
@@ -371,10 +302,6 @@ mod tests {
 
         collector.record_request_end(150.5, "claude-sonnet-4", 100, 200);
         assert_eq!(collector.get_active_connections(), 0);
-
-        let (input, output) = collector.get_token_totals();
-        assert_eq!(input, 100);
-        assert_eq!(output, 200);
     }
 
     #[test]

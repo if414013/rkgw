@@ -47,32 +47,6 @@ pub fn render_cpu_gauge(cpu: f64) -> Gauge<'static> {
         .label(format!("{:.1}%", cpu))
 }
 
-pub fn render_memory_gauge(used: u64, total: u64) -> Gauge<'static> {
-    let ratio = if total > 0 {
-        (used as f64 / total as f64).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let percent = ratio * 100.0;
-
-    let color = if percent > 80.0 {
-        Color::Red
-    } else if percent > 60.0 {
-        Color::Yellow
-    } else {
-        Color::Green
-    };
-
-    let used_gb = used as f64 / 1024.0 / 1024.0 / 1024.0;
-    let total_gb = total as f64 / 1024.0 / 1024.0 / 1024.0;
-
-    Gauge::default()
-        .block(Block::default().borders(Borders::ALL).title("Memory"))
-        .gauge_style(Style::default().fg(color))
-        .ratio(ratio)
-        .label(format!("{:.1}/{:.1} GB", used_gb, total_gb))
-}
-
 pub fn render_process_memory_gauge(bytes: u64) -> Paragraph<'static> {
     let mb = bytes as f64 / 1024.0 / 1024.0;
 
@@ -148,10 +122,6 @@ pub fn render_latency_block(p50: f64, p95: f64, p99: f64) -> Paragraph<'static> 
     ];
 
     Paragraph::new(text).block(Block::default().borders(Borders::ALL).title("Latency"))
-}
-
-pub fn render_log_panel(logs: &[LogEntry], scroll: usize) -> List<'static> {
-    render_log_panel_with_title(logs, scroll, "Logs (↑/↓ to scroll)")
 }
 
 pub fn render_log_panel_with_title(logs: &[LogEntry], scroll: usize, title: &str) -> List<'static> {

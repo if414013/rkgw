@@ -29,18 +29,6 @@ impl DashboardLayer {
             min_level: Level::INFO,
         }
     }
-
-    /// Set the buffer capacity
-    pub fn with_capacity(mut self, capacity: usize) -> Self {
-        self.capacity = capacity;
-        self
-    }
-
-    /// Set the minimum log level to capture
-    pub fn with_min_level(mut self, level: Level) -> Self {
-        self.min_level = level;
-        self
-    }
 }
 
 impl<S> Layer<S> for DashboardLayer
@@ -138,7 +126,8 @@ mod tests {
     #[test]
     fn test_buffer_capacity_limit() {
         let buffer = Arc::new(Mutex::new(VecDeque::new()));
-        let layer = DashboardLayer::new(Arc::clone(&buffer)).with_capacity(5);
+        let mut layer = DashboardLayer::new(Arc::clone(&buffer));
+        layer.capacity = 5;
 
         let subscriber = tracing_subscriber::registry().with(layer);
         tracing::subscriber::with_default(subscriber, || {
