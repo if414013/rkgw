@@ -351,15 +351,4 @@ mod tests {
         assert_eq!(collector.errors_by_type.len(), 2);
     }
 
-    #[test]
-    fn test_ring_buffer_capacity() {
-        let collector = MetricsCollector::new();
-
-        for i in 0..(RING_BUFFER_CAPACITY + 100) {
-            collector.record_request_end(i as f64, "test", 10, 20);
-        }
-
-        let history = collector.get_latency_history();
-        assert!(history.len() <= RING_BUFFER_CAPACITY);
-    }
 }

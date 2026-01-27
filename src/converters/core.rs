@@ -173,6 +173,15 @@ pub fn extract_images_from_content(content: &MessageContent) -> Vec<UnifiedImage
                             "URL-based images are not supported by Kiro API, skipping: {}...",
                             &image_url.url[..80.min(image_url.url.len())]
                         );
+                    } else if !image_url.url.is_empty() {
+                        // Assume raw base64 data without data URL prefix
+                        warn!(
+                            "Image URL missing data: prefix, assuming raw base64 with image/jpeg"
+                        );
+                        images.push(UnifiedImage {
+                            media_type: "image/jpeg".to_string(),
+                            data: image_url.url.clone(),
+                        });
                     }
                 }
                 // Anthropic format
