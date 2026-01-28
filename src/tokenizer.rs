@@ -23,6 +23,10 @@ const FINAL_SERVICE_TOKENS: i32 = 3;
 /// Approximate tokens per image
 const TOKENS_PER_IMAGE: i32 = 100;
 
+/// Tool overhead for Claude models when tools are present
+/// See: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview#pricing
+pub const CLAUDE_TOOL_OVERHEAD: i32 = 346;
+
 /// Global tiktoken encoding (lazily initialized)
 static ENCODING: OnceLock<CoreBPE> = OnceLock::new();
 

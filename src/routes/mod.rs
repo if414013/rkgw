@@ -26,7 +26,9 @@ use crate::middleware::DEBUG_LOGGER;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
 use crate::resolver::ModelResolver;
-use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
+use crate::tokenizer::{
+    count_anthropic_message_tokens, count_message_tokens, count_tools_tokens, CLAUDE_TOOL_OVERHEAD,
+};
 use std::time::Instant;
 
 /// Application version from Cargo.toml
@@ -118,6 +120,7 @@ pub fn openai_routes(state: AppState) -> Router {
 pub fn anthropic_routes(state: AppState) -> Router {
     Router::new()
         .route("/v1/messages", post(anthropic_messages_handler))
+        .route("/v1/messages/count_tokens", post(count_tokens_handler))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
             middleware::auth_middleware,
@@ -586,6 +589,49 @@ async fn anthropic_messages_handler(
     }
 }
 
+/// POST /v1/messages/count_tokens - Count tokens for Anthropic message
+///
+/// Calculates the number of input tokens that would be used for a message request
+/// without actually sending it to the API. Follows Anthropic's token counting specification.
+async fn count_tokens_handler(
+    State(_state): State<AppState>,
+    Json(request): Json<AnthropicMessagesRequest>,
+) -> Result<Json<Value>, ApiError> {
+    tracing::debug!(
+        "Token count request: model={}, messages={}",
+        request.model,
+        request.messages.len()
+    );
+
+    // Count base tokens using the tokenizer
+    let mut input_tokens = count_anthropic_message_tokens(
+        &request.messages,
+        request.system.as_ref(),
+        request.tools.as_ref(),
+    );
+
+    // Add tool overhead for Claude models when tools are present
+    // See: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview#pricing
+    if let Some(tools) = &request.tools {
+        if !tools.is_empty() && request.model.starts_with("claude") {
+            input_tokens += CLAUDE_TOOL_OVERHEAD;
+            tracing::debug!("Added Claude tool overhead: +{} tokens", CLAUDE_TOOL_OVERHEAD);
+        }
+    }
+
+    // Apply Claude correction factor (1.15x) for Claude models
+    if request.model.starts_with("claude") {
+        input_tokens = ((input_tokens as f64) * 1.15).round() as i32;
+        tracing::debug!("Applied Claude correction factor (1.15x)");
+    }
+
+    tracing::debug!("Final token count: {}", input_tokens);
+
+    Ok(Json(json!({
+        "input_tokens": input_tokens
+    })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,5 +821,149 @@ mod tests {
             }
             _ => panic!("Expected ValidationError for empty messages"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_count_tokens_basic() {
+        let state = create_test_state();
+
+        let request = crate::models::anthropic::AnthropicMessagesRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![crate::models::anthropic::AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("Hello, how are you?"),
+            }],
+            max_tokens: 100,
+            system: None,
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop_sequences: None,
+            metadata: None,
+        };
+
+        let result = count_tokens_handler(State(state), Json(request)).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().0;
+        let input_tokens = response["input_tokens"].as_i64().unwrap();
+
+        // Should have some tokens (exact count depends on tokenizer)
+        assert!(input_tokens > 0);
+        assert!(input_tokens < 100); // Simple message shouldn't be too many tokens
+    }
+
+    #[tokio::test]
+    async fn test_count_tokens_with_tools() {
+        let state = create_test_state();
+
+        let request = crate::models::anthropic::AnthropicMessagesRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![crate::models::anthropic::AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("What's the weather?"),
+            }],
+            max_tokens: 100,
+            system: None,
+            stream: false,
+            tools: Some(vec![crate::models::anthropic::AnthropicTool {
+                name: "get_weather".to_string(),
+                description: Some("Get the current weather".to_string()),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "location": {"type": "string"}
+                    }
+                }),
+            }]),
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop_sequences: None,
+            metadata: None,
+        };
+
+        let result = count_tokens_handler(State(state), Json(request)).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().0;
+        let input_tokens = response["input_tokens"].as_i64().unwrap();
+
+        // Should include tool overhead (346 tokens) for Claude models
+        assert!(input_tokens > 346);
+    }
+
+    #[tokio::test]
+    async fn test_count_tokens_with_system_prompt() {
+        let state = create_test_state();
+
+        let request = crate::models::anthropic::AnthropicMessagesRequest {
+            model: "claude-sonnet-4".to_string(),
+            messages: vec![crate::models::anthropic::AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("Hello"),
+            }],
+            max_tokens: 100,
+            system: Some(serde_json::json!("You are a helpful assistant.")),
+            stream: false,
+            tools: None,
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop_sequences: None,
+            metadata: None,
+        };
+
+        let result = count_tokens_handler(State(state), Json(request)).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().0;
+        let input_tokens = response["input_tokens"].as_i64().unwrap();
+
+        // Should have tokens from both system and user message
+        assert!(input_tokens > 0);
+    }
+
+    #[tokio::test]
+    async fn test_count_tokens_non_claude_model() {
+        let state = create_test_state();
+
+        let request = crate::models::anthropic::AnthropicMessagesRequest {
+            model: "gpt-4".to_string(),
+            messages: vec![crate::models::anthropic::AnthropicMessage {
+                role: "user".to_string(),
+                content: serde_json::json!("Hello"),
+            }],
+            max_tokens: 100,
+            system: None,
+            stream: false,
+            tools: Some(vec![crate::models::anthropic::AnthropicTool {
+                name: "test_tool".to_string(),
+                description: Some("Test tool".to_string()),
+                input_schema: serde_json::json!({"type": "object"}),
+            }]),
+            tool_choice: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop_sequences: None,
+            metadata: None,
+        };
+
+        let result = count_tokens_handler(State(state), Json(request)).await;
+        assert!(result.is_ok());
+
+        let response = result.unwrap().0;
+        let input_tokens = response["input_tokens"].as_i64().unwrap();
+
+        // Non-Claude models should NOT get tool overhead or correction factor
+        assert!(input_tokens > 0);
+        // Should be relatively small since no Claude overhead applied
+        assert!(input_tokens < 100);
     }
 }
