@@ -97,43 +97,62 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Extracted version: $VERSION"
 
-      - name: Download macOS artifacts
+      - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          pattern: kiro-gateway-*-apple-darwin
 
       - name: Calculate SHA256 checksums
         id: checksums
         run: |
-          # Calculate SHA256 for Intel macOS
-          INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-apple-darwin/kiro-gateway-x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
-          echo "intel_sha=$INTEL_SHA" >> $GITHUB_OUTPUT
-          echo "Intel SHA256: $INTEL_SHA"
+          # macOS Intel
+          MACOS_INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-apple-darwin/kiro-gateway-x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
+          echo "macos_intel_sha=$MACOS_INTEL_SHA" >> $GITHUB_OUTPUT
+          echo "macOS Intel SHA256: $MACOS_INTEL_SHA"
 
-          # Calculate SHA256 for Apple Silicon macOS
-          ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-apple-darwin/kiro-gateway-aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
-          echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
-          echo "ARM SHA256: $ARM_SHA"
+          # macOS ARM
+          MACOS_ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-apple-darwin/kiro-gateway-aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
+          echo "macos_arm_sha=$MACOS_ARM_SHA" >> $GITHUB_OUTPUT
+          echo "macOS ARM SHA256: $MACOS_ARM_SHA"
+
+          # Linux Intel
+          LINUX_INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-unknown-linux-gnu/kiro-gateway-x86_64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
+          echo "linux_intel_sha=$LINUX_INTEL_SHA" >> $GITHUB_OUTPUT
+          echo "Linux Intel SHA256: $LINUX_INTEL_SHA"
+
+          # Linux ARM
+          LINUX_ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-unknown-linux-gnu/kiro-gateway-aarch64-unknown-linux-gnu.tar.gz | cut -d ' ' -f 1)
+          echo "linux_arm_sha=$LINUX_ARM_SHA" >> $GITHUB_OUTPUT
+          echo "Linux ARM SHA256: $LINUX_ARM_SHA"
 
       - name: Generate Homebrew formula
         run: |
-          cat > kiro-gateway.rb <<EOF
+          cat > kiro-gateway.rb <<'FORMULA_EOF'
           class KiroGateway < Formula
-            desc "High-performance proxy gateway for Kiro API - OpenAI and Anthropic compatible"
+            desc "Proxy gateway for Kiro API - OpenAI and Anthropic compatible"
             homepage "https://github.com/if414013/rkgw"
             version "${{ steps.version.outputs.version }}"
             license "AGPL-3.0"
 
             on_macos do
               on_intel do
-                url "https://github.com/if414013/rkgw/releases/download/v${{ steps.version.outputs.version }}/kiro-gateway-x86_64-apple-darwin.tar.gz"
-                sha256 "${{ steps.checksums.outputs.intel_sha }}"
+                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-x86_64-apple-darwin.tar.gz"
+                sha256 "${{ steps.checksums.outputs.macos_intel_sha }}"
               end
-
               on_arm do
-                url "https://github.com/if414013/rkgw/releases/download/v${{ steps.version.outputs.version }}/kiro-gateway-aarch64-apple-darwin.tar.gz"
-                sha256 "${{ steps.checksums.outputs.arm_sha }}"
+                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-aarch64-apple-darwin.tar.gz"
+                sha256 "${{ steps.checksums.outputs.macos_arm_sha }}"
+              end
+            end
+
+            on_linux do
+              on_intel do
+                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_intel_sha }}"
+              end
+              on_arm do
+                url "https://github.com/if414013/rkgw/releases/download/v#{version}/kiro-gateway-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${{ steps.checksums.outputs.linux_arm_sha }}"
               end
             end
 
@@ -142,10 +161,10 @@ jobs:
             end
 
             test do
-              assert_match "kiro-gateway", shell_output("#{bin}/kiro-gateway --version", 2)
+              assert_match "kiro-gateway", shell_output("#{bin}/kiro-gateway --help 2>&1", 2)
             end
           end
-          EOF
+          FORMULA_EOF
 
           echo "Generated formula:"
           cat kiro-gateway.rb
@@ -160,9 +179,6 @@ jobs:
 
           # Clone the tap repository
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/if414013/homebrew-tvps.git tap-repo
-
-          # Ensure Formula directory exists
-          mkdir -p tap-repo/Formula
 
           # Copy the formula
           cp kiro-gateway.rb tap-repo/Formula/kiro-gateway.rb
