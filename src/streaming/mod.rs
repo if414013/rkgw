@@ -603,8 +603,13 @@ pub fn parse_kiro_event_with_accumulator(
         tracing::info!(
             "Tool event: name={}, input_len={}, stop={}",
             json.get("name").and_then(|v| v.as_str()).unwrap_or("-"),
-            json.get("input").map(|v| v.as_str().map(|s| s.len()).unwrap_or(0)).unwrap_or(0),
-            json.get("stop").and_then(|v| v.as_bool()).map(|b| b.to_string()).unwrap_or("-".to_string())
+            json.get("input")
+                .map(|v| v.as_str().map(|s| s.len()).unwrap_or(0))
+                .unwrap_or(0),
+            json.get("stop")
+                .and_then(|v| v.as_bool())
+                .map(|b| b.to_string())
+                .unwrap_or("-".to_string())
         );
         if let Some(completed_tool) = tool_acc.process_event(json) {
             return Some(KiroEvent {
@@ -1627,10 +1632,7 @@ use uuid::Uuid;
 
 /// Generates a unique completion ID in OpenAI format.
 fn generate_completion_id() -> String {
-    format!(
-        "chatcmpl-{}",
-        &Uuid::new_v4().simple().to_string()[..24]
-    )
+    format!("chatcmpl-{}", &Uuid::new_v4().simple().to_string()[..24])
 }
 
 /// Converts Kiro stream to OpenAI SSE format.
@@ -1676,7 +1678,7 @@ pub async fn stream_kiro_to_openai(
 
     // Clone state for use in final stream
     let state_for_final = state.clone();
-    
+
     // Clone tracker for stream processing
     let tracker_for_stream = output_tokens_tracker.clone();
 
@@ -1697,7 +1699,7 @@ pub async fn stream_kiro_to_openai(
                             if let Some(content) = event.content {
                                 // Track character count for token estimation
                                 state.total_chars += content.len();
-                                
+
                                 let delta = ChatCompletionChunkDelta {
                                     role: if state.first_chunk {
                                         Some("assistant".to_string())
@@ -1737,7 +1739,7 @@ pub async fn stream_kiro_to_openai(
                             if let Some(thinking) = event.thinking_content {
                                 // Track character count for token estimation
                                 state.total_chars += thinking.len();
-                                
+
                                 let delta = ChatCompletionChunkDelta {
                                     role: if state.first_chunk {
                                         Some("assistant".to_string())
@@ -1890,7 +1892,7 @@ pub async fn stream_kiro_to_openai(
                     // Fallback: Estimate output tokens from character count
                     // Using industry standard: ~4 characters per token (same as OpenCode)
                     let estimated_output_tokens = (state.total_chars / 4) as i32;
-                    
+
                     if estimated_output_tokens > 0 {
                         tracing::info!(
                             "No usage data from Kiro API - using estimation: prompt_tokens={}, completion_tokens={} (estimated from {} chars), total_tokens={}",
@@ -1899,12 +1901,12 @@ pub async fn stream_kiro_to_openai(
                             state.total_chars,
                             input_tokens + estimated_output_tokens
                         );
-                        
+
                         // Update metrics tracker with estimated tokens
                         if let Some(ref t) = tracker {
                             t.store(estimated_output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
                         }
-                        
+
                         Some(ChatCompletionUsage {
                             prompt_tokens: input_tokens,
                             completion_tokens: estimated_output_tokens,
@@ -1980,10 +1982,7 @@ fn format_anthropic_sse_event(event_type: &str, data: &Value) -> String {
 
 /// Generates a unique message ID in Anthropic format.
 fn generate_anthropic_message_id() -> String {
-    format!(
-        "msg_{}",
-        &Uuid::new_v4().simple().to_string()[..24]
-    )
+    format!("msg_{}", &Uuid::new_v4().simple().to_string()[..24])
 }
 
 /// Converts Kiro stream to Anthropic SSE format.

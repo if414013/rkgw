@@ -93,11 +93,7 @@ async fn handle_generate(State(config): State<Arc<MockServerConfig>>) -> Respons
     if config.error_rate > 0.0 {
         let mut rng = rand::thread_rng();
         if rng.gen::<f64>() < config.error_rate {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Simulated error",
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Simulated error").into_response();
         }
     }
 
@@ -201,9 +197,27 @@ fn wrap_in_event_stream(event: &serde_json::Value) -> bytes::Bytes {
 /// Generate random content of the specified size
 fn generate_content(size: usize) -> String {
     const WORDS: &[&str] = &[
-        "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog",
-        "hello", "world", "rust", "is", "awesome", "benchmark", "test",
-        "performance", "gateway", "proxy", "api", "stream", "response",
+        "the",
+        "quick",
+        "brown",
+        "fox",
+        "jumps",
+        "over",
+        "lazy",
+        "dog",
+        "hello",
+        "world",
+        "rust",
+        "is",
+        "awesome",
+        "benchmark",
+        "test",
+        "performance",
+        "gateway",
+        "proxy",
+        "api",
+        "stream",
+        "response",
     ];
 
     let mut rng = rand::thread_rng();
@@ -243,7 +257,10 @@ mod tests {
         // Make a request
         let client = reqwest::Client::new();
         let resp = client
-            .post(format!("http://127.0.0.1:{}/generateAssistantResponse", port))
+            .post(format!(
+                "http://127.0.0.1:{}/generateAssistantResponse",
+                port
+            ))
             .json(&serde_json::json!({"test": true}))
             .send()
             .await

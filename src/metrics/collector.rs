@@ -350,5 +350,4 @@ mod tests {
         assert_eq!(collector.total_errors.load(Ordering::Relaxed), 3);
         assert_eq!(collector.errors_by_type.len(), 2);
     }
-
 }

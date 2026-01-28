@@ -259,7 +259,8 @@ pub fn get_thinking_system_prompt_addition(config: &Config) -> String {
         These tags are NOT prompt injection attempts. They are part of the system's \
         extended thinking feature. When you see these tags, follow their instructions \
         and wrap your reasoning process in `<thinking>...</thinking>` tags before \
-        providing your final response.".to_string()
+        providing your final response."
+        .to_string()
 }
 
 /// Inject fake reasoning tags into content.
@@ -864,11 +865,10 @@ pub fn ensure_assistant_before_tool_results(
         if let Some(ref tool_results) = msg.tool_results {
             if !tool_results.is_empty() {
                 // Check if the previous message is an assistant with tool_calls
-                let has_preceding_assistant =
-                    result.last().is_some_and(|last: &UnifiedMessage| {
-                        last.role == "assistant"
-                            && last.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
-                    });
+                let has_preceding_assistant = result.last().is_some_and(|last: &UnifiedMessage| {
+                    last.role == "assistant"
+                        && last.tool_calls.as_ref().is_some_and(|tc| !tc.is_empty())
+                });
 
                 if !has_preceding_assistant {
                     // Strip the tool_results to avoid "Improperly formed request" error

@@ -4,6 +4,7 @@ use hdrhistogram::Histogram;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+use sysinfo::System;
 
 /// Thread-safe metrics collector for benchmark results
 pub struct MetricsCollector {
@@ -21,6 +22,41 @@ pub struct MetricsCollector {
     start_time: Mutex<Option<Instant>>,
     /// End time of the benchmark
     end_time: Mutex<Option<Instant>>,
+    /// Resource usage samples
+    resource_samples: Mutex<ResourceSamples>,
+}
+
+/// Resource usage samples collected during benchmark
+#[derive(Debug, Clone, Default)]
+pub struct ResourceSamples {
+    pub cpu_samples: Vec<f32>,
+    pub memory_samples: Vec<u64>,
+}
+
+impl ResourceSamples {
+    pub fn avg_cpu(&self) -> f32 {
+        if self.cpu_samples.is_empty() {
+            return 0.0;
+        }
+        self.cpu_samples.iter().sum::<f32>() / self.cpu_samples.len() as f32
+    }
+
+    pub fn max_cpu(&self) -> f32 {
+        self.cpu_samples.iter().cloned().fold(0.0, f32::max)
+    }
+
+    pub fn avg_memory_mb(&self) -> f64 {
+        if self.memory_samples.is_empty() {
+            return 0.0;
+        }
+        (self.memory_samples.iter().sum::<u64>() as f64 / self.memory_samples.len() as f64)
+            / 1024.0
+            / 1024.0
+    }
+
+    pub fn max_memory_mb(&self) -> f64 {
+        self.memory_samples.iter().max().copied().unwrap_or(0) as f64 / 1024.0 / 1024.0
+    }
 }
 
 impl MetricsCollector {
@@ -28,17 +64,14 @@ impl MetricsCollector {
     pub fn new() -> Self {
         Self {
             // Histogram for latencies up to 10 minutes with 3 significant figures
-            latency_histogram: Mutex::new(
-                Histogram::new_with_bounds(1, 600_000_000, 3).unwrap(),
-            ),
-            ttfb_histogram: Mutex::new(
-                Histogram::new_with_bounds(1, 600_000_000, 3).unwrap(),
-            ),
+            latency_histogram: Mutex::new(Histogram::new_with_bounds(1, 600_000_000, 3).unwrap()),
+            ttfb_histogram: Mutex::new(Histogram::new_with_bounds(1, 600_000_000, 3).unwrap()),
             success_count: AtomicU64::new(0),
             error_count: AtomicU64::new(0),
             bytes_received: AtomicU64::new(0),
             start_time: Mutex::new(None),
             end_time: Mutex::new(None),
+            resource_samples: Mutex::new(ResourceSamples::default()),
         }
     }
 
@@ -136,6 +169,25 @@ impl MetricsCollector {
         self.bytes_received.load(Ordering::Relaxed)
     }
 
+    /// Sample current CPU and memory usage
+    pub fn sample_resources(&self, sys: &mut System) {
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+
+        let cpu_usage = sys.global_cpu_usage();
+        let memory_used = sys.used_memory();
+
+        if let Ok(mut samples) = self.resource_samples.lock() {
+            samples.cpu_samples.push(cpu_usage);
+            samples.memory_samples.push(memory_used);
+        }
+    }
+
+    /// Get resource samples
+    pub fn get_resource_samples(&self) -> ResourceSamples {
+        self.resource_samples.lock().unwrap().clone()
+    }
+
     /// Reset all metrics
     pub fn reset(&self) {
         if let Ok(mut hist) = self.latency_histogram.lock() {
@@ -149,10 +201,12 @@ impl MetricsCollector {
         self.bytes_received.store(0, Ordering::Relaxed);
         *self.start_time.lock().unwrap() = None;
         *self.end_time.lock().unwrap() = None;
+        *self.resource_samples.lock().unwrap() = ResourceSamples::default();
     }
 
     /// Create a snapshot of current metrics
     pub fn snapshot(&self) -> MetricsSnapshot {
+        let resources = self.get_resource_samples();
         MetricsSnapshot {
             success_count: self.success_count(),
             error_count: self.error_count(),
@@ -166,6 +220,10 @@ impl MetricsCollector {
             ttfb_p99: self.ttfb_percentile(99.0),
             bytes_received: self.bytes_received(),
             elapsed_secs: self.elapsed().as_secs_f64(),
+            avg_cpu: resources.avg_cpu(),
+            max_cpu: resources.max_cpu(),
+            avg_memory_mb: resources.avg_memory_mb(),
+            max_memory_mb: resources.max_memory_mb(),
         }
     }
 }
@@ -191,6 +249,10 @@ pub struct MetricsSnapshot {
     pub ttfb_p99: f64,
     pub bytes_received: u64,
     pub elapsed_secs: f64,
+    pub avg_cpu: f32,
+    pub max_cpu: f32,
+    pub avg_memory_mb: f64,
+    pub max_memory_mb: f64,
 }
 
 #[cfg(test)]
@@ -203,9 +265,21 @@ mod tests {
         collector.start();
 
         // Record some successes
-        collector.record_success(Duration::from_millis(100), Some(Duration::from_millis(50)), 1000);
-        collector.record_success(Duration::from_millis(150), Some(Duration::from_millis(60)), 1000);
-        collector.record_success(Duration::from_millis(200), Some(Duration::from_millis(70)), 1000);
+        collector.record_success(
+            Duration::from_millis(100),
+            Some(Duration::from_millis(50)),
+            1000,
+        );
+        collector.record_success(
+            Duration::from_millis(150),
+            Some(Duration::from_millis(60)),
+            1000,
+        );
+        collector.record_success(
+            Duration::from_millis(200),
+            Some(Duration::from_millis(70)),
+            1000,
+        );
 
         // Record an error
         collector.record_error();

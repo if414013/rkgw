@@ -30,7 +30,12 @@ enum Commands {
         api_key: String,
 
         /// Concurrency levels to test (comma-separated)
-        #[arg(short = 'c', long, default_value = "10,50,100,200", value_delimiter = ',')]
+        #[arg(
+            short = 'c',
+            long,
+            default_value = "10,50,100,200",
+            value_delimiter = ','
+        )]
         concurrency: Vec<usize>,
 
         /// Duration per concurrency level in seconds
@@ -271,6 +276,7 @@ impl MockBenchmarkRunner {
         use kiro_gateway::bench::MetricsCollector;
         use std::sync::Arc;
         use std::time::{Duration, Instant};
+        use sysinfo::System;
         use tokio::sync::Semaphore;
 
         let mut results = Vec::new();
@@ -284,6 +290,17 @@ impl MockBenchmarkRunner {
 
             metrics.start();
             let start = Instant::now();
+
+            // Spawn resource sampling task
+            let metrics_for_sampling = metrics.clone();
+            let sampling_duration = duration;
+            let sampling_handle = tokio::spawn(async move {
+                let mut sys = System::new_all();
+                while start.elapsed() < sampling_duration {
+                    metrics_for_sampling.sample_resources(&mut sys);
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+            });
 
             let mut handles = Vec::new();
 
@@ -323,15 +340,20 @@ impl MockBenchmarkRunner {
                 let _ = handle.await;
             }
 
+            // Wait for sampling to finish
+            let _ = sampling_handle.await;
+
             metrics.stop();
             let snapshot = metrics.snapshot();
 
             println!(
-                "  RPS: {:.1}, p50: {:.1}ms, p99: {:.1}ms, success: {:.1}%",
+                "  RPS: {:.1}, p50: {:.1}ms, p99: {:.1}ms, success: {:.1}%, CPU: {:.1}%, Mem: {:.0}MB",
                 snapshot.requests_per_second,
                 snapshot.latency_p50,
                 snapshot.latency_p99,
-                snapshot.success_rate
+                snapshot.success_rate,
+                snapshot.avg_cpu,
+                snapshot.avg_memory_mb
             );
 
             results.push((concurrency, snapshot));

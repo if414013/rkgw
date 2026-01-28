@@ -12,10 +12,7 @@ use crate::models::kiro::KiroResponse;
 
 /// Generates a unique message ID in Anthropic format.
 fn generate_message_id() -> String {
-    format!(
-        "msg_{}",
-        &Uuid::new_v4().simple().to_string()[..24]
-    )
+    format!("msg_{}", &Uuid::new_v4().simple().to_string()[..24])
 }
 
 /// Converts Kiro response to Anthropic MessagesResponse.

@@ -326,8 +326,8 @@ impl DebugLogger {
 
         // Try to parse as JSON for pretty printing
         if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(body) {
-            let pretty = serde_json::to_string_pretty(&json_value)
-                .map_err(std::io::Error::other)?;
+            let pretty =
+                serde_json::to_string_pretty(&json_value).map_err(std::io::Error::other)?;
             fs::write(&file_path, pretty).await?;
         } else {
             // Write raw bytes if not valid JSON
@@ -344,8 +344,8 @@ impl DebugLogger {
 
         // Try to parse as JSON for pretty printing
         if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(body) {
-            let pretty = serde_json::to_string_pretty(&json_value)
-                .map_err(std::io::Error::other)?;
+            let pretty =
+                serde_json::to_string_pretty(&json_value).map_err(std::io::Error::other)?;
             fs::write(&file_path, pretty).await?;
         } else {
             // Write raw bytes if not valid JSON
@@ -461,8 +461,7 @@ impl DebugLogger {
             "error_message": error_message
         });
 
-        let pretty = serde_json::to_string_pretty(&error_info)
-            .map_err(std::io::Error::other)?;
+        let pretty = serde_json::to_string_pretty(&error_info).map_err(std::io::Error::other)?;
         fs::write(&file_path, pretty).await?;
 
         Ok(())

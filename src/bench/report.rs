@@ -29,6 +29,10 @@ pub struct ConcurrencyResult {
     pub success_rate: f64,
     pub total_requests: u64,
     pub errors: u64,
+    pub avg_cpu: f32,
+    pub max_cpu: f32,
+    pub avg_memory_mb: f64,
+    pub max_memory_mb: f64,
 }
 
 impl BenchmarkReport {
@@ -47,6 +51,10 @@ impl BenchmarkReport {
                 success_rate: snapshot.success_rate,
                 total_requests: snapshot.success_count + snapshot.error_count,
                 errors: snapshot.error_count,
+                avg_cpu: snapshot.avg_cpu,
+                max_cpu: snapshot.max_cpu,
+                avg_memory_mb: snapshot.avg_memory_mb,
+                max_memory_mb: snapshot.max_memory_mb,
             })
             .collect();
 
@@ -79,28 +87,31 @@ impl BenchmarkReport {
     /// Print the report as an ASCII table
     pub fn print_table(&self) {
         println!();
-        println!("╔══════════════════════════════════════════════════════════════════════════════╗");
-        println!("║                    KIRO GATEWAY BENCHMARK RESULTS                            ║");
-        println!("╚══════════════════════════════════════════════════════════════════════════════╝");
+        println!("╔════════════════════════════════════════════════════════════════════════════════════════════════════════╗");
+        println!("║                              KIRO GATEWAY BENCHMARK RESULTS                                            ║");
+        println!("╚════════════════════════════════════════════════════════════════════════════════════════════════════════╝");
         println!();
-        println!("┌────────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐");
-        println!("│ Concurrency│   RPS    │  p50(ms) │  p95(ms) │  p99(ms) │ TTFB p50 │ Success% │");
-        println!("├────────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────┤");
+        println!("┌────────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────────┐");
+        println!("│ Concurrency│   RPS    │  p50(ms) │  p95(ms) │  p99(ms) │ TTFB p50 │ Success% │ CPU(avg) │  Memory(MB)  │");
+        println!("├────────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────────┤");
 
         for result in &self.results {
             println!(
-                "│ {:>10} │ {:>8.1} │ {:>8.1} │ {:>8.1} │ {:>8.1} │ {:>8.1} │ {:>7.1}% │",
+                "│ {:>10} │ {:>8.1} │ {:>8.1} │ {:>8.1} │ {:>8.1} │ {:>8.1} │ {:>7.1}% │ {:>6.1}%  │ {:>6.0}/{:<6.0} │",
                 result.concurrency,
                 result.requests_per_second,
                 result.latency_p50_ms,
                 result.latency_p95_ms,
                 result.latency_p99_ms,
                 result.ttfb_p50_ms,
-                result.success_rate
+                result.success_rate,
+                result.avg_cpu,
+                result.avg_memory_mb,
+                result.max_memory_mb
             );
         }
 
-        println!("└────────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘");
+        println!("└────────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────────┘");
         println!();
 
         if let Some(optimal) = self.optimal_concurrency {
@@ -128,7 +139,10 @@ impl BenchmarkReport {
     /// Print a compact summary
     pub fn print_summary(&self) {
         println!("\n=== Benchmark Summary ===");
-        println!("Max RPS: {:.1} at concurrency {}", self.max_rps, self.max_rps_concurrency);
+        println!(
+            "Max RPS: {:.1} at concurrency {}",
+            self.max_rps, self.max_rps_concurrency
+        );
 
         if let Some(optimal) = self.optimal_concurrency {
             println!("Optimal concurrency: {}", optimal);
@@ -171,6 +185,10 @@ mod tests {
                     ttfb_p99: 85.0,
                     bytes_received: 10000,
                     elapsed_secs: 0.67,
+                    avg_cpu: 25.0,
+                    max_cpu: 45.0,
+                    avg_memory_mb: 100.0,
+                    max_memory_mb: 120.0,
                 },
             ),
             (
@@ -188,6 +206,10 @@ mod tests {
                     ttfb_p99: 100.0,
                     bytes_received: 50000,
                     elapsed_secs: 0.74,
+                    avg_cpu: 55.0,
+                    max_cpu: 80.0,
+                    avg_memory_mb: 150.0,
+                    max_memory_mb: 200.0,
                 },
             ),
         ];
