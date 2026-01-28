@@ -208,16 +208,32 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
           "name": "Auto"
         },
         "claude-haiku-4.5": {
-          "name": "Claude Haiku 4.5"
+          "name": "Claude Haiku 4.5",
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         },
         "claude-opus-4.5": {
-          "name": "Claude Opus 4.5"
+          "name": "Claude Opus 4.5",
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         },
         "claude-sonnet-4": {
-          "name": "Claude Sonnet 4"
+          "name": "Claude Sonnet 4",
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         },
         "claude-sonnet-4.5": {
-          "name": "Claude Sonnet 4.5"
+          "name": "Claude Sonnet 4.5",
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         }
       }
     }

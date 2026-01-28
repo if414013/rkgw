@@ -284,6 +284,23 @@ async fn chat_completions_handler(
     let input_tokens = count_message_tokens(&request.messages, false)
         + count_tools_tokens(request.tools.as_ref(), false);
 
+    // Extract include_usage from stream_options
+    // Default to true for better compatibility with OpenCode and other clients
+    // that expect providers to report token usage
+    let include_usage = request
+        .stream_options
+        .as_ref()
+        .and_then(|opts| opts.get("include_usage"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true); // Changed from false to true
+
+    tracing::info!(
+        "Stream options: {:?}, include_usage: {}, streaming: {}",
+        request.stream_options,
+        include_usage,
+        request.stream
+    );
+
     // Handle streaming vs non-streaming
     if request.stream {
         // Streaming response
@@ -305,6 +322,7 @@ async fn chat_completions_handler(
             15,
             input_tokens,
             Some(output_tokens_handle),
+            include_usage,
         )
         .await
         .inspect_err(|e| {
