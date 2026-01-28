@@ -26,9 +26,7 @@ use crate::middleware::DEBUG_LOGGER;
 use crate::models::anthropic::AnthropicMessagesRequest;
 use crate::models::openai::{ChatCompletionRequest, ModelList, OpenAIModel};
 use crate::resolver::ModelResolver;
-use crate::tokenizer::{
-    count_anthropic_message_tokens, count_message_tokens, count_tools_tokens, CLAUDE_TOOL_OVERHEAD,
-};
+use crate::tokenizer::{count_anthropic_message_tokens, count_message_tokens, count_tools_tokens};
 use std::time::Instant;
 
 /// Application version from Cargo.toml
@@ -592,7 +590,7 @@ async fn anthropic_messages_handler(
 /// POST /v1/messages/count_tokens - Count tokens for Anthropic message
 ///
 /// Calculates the number of input tokens that would be used for a message request
-/// without actually sending it to the API. Follows Anthropic's token counting specification.
+/// without actually sending it to the API. Returns the same count used for metrics/dashboard.
 async fn count_tokens_handler(
     State(_state): State<AppState>,
     Json(request): Json<AnthropicMessagesRequest>,
@@ -603,29 +601,15 @@ async fn count_tokens_handler(
         request.messages.len()
     );
 
-    // Count base tokens using the tokenizer
-    let mut input_tokens = count_anthropic_message_tokens(
+    // Count tokens using the same function as the main handler
+    // This already includes tool counting and Claude correction factor
+    let input_tokens = count_anthropic_message_tokens(
         &request.messages,
         request.system.as_ref(),
         request.tools.as_ref(),
     );
 
-    // Add tool overhead for Claude models when tools are present
-    // See: https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/overview#pricing
-    if let Some(tools) = &request.tools {
-        if !tools.is_empty() && request.model.starts_with("claude") {
-            input_tokens += CLAUDE_TOOL_OVERHEAD;
-            tracing::debug!("Added Claude tool overhead: +{} tokens", CLAUDE_TOOL_OVERHEAD);
-        }
-    }
-
-    // Apply Claude correction factor (1.15x) for Claude models
-    if request.model.starts_with("claude") {
-        input_tokens = ((input_tokens as f64) * 1.15).round() as i32;
-        tracing::debug!("Applied Claude correction factor (1.15x)");
-    }
-
-    tracing::debug!("Final token count: {}", input_tokens);
+    tracing::debug!("Token count: {}", input_tokens);
 
     Ok(Json(json!({
         "input_tokens": input_tokens
@@ -887,14 +871,25 @@ mod tests {
             metadata: None,
         };
 
-        let result = count_tokens_handler(State(state), Json(request)).await;
-        assert!(result.is_ok());
+        // Also count without tools for comparison
+        let request_no_tools = crate::models::anthropic::AnthropicMessagesRequest {
+            tools: None,
+            ..request.clone()
+        };
 
-        let response = result.unwrap().0;
-        let input_tokens = response["input_tokens"].as_i64().unwrap();
+        let result_with_tools = count_tokens_handler(State(state.clone()), Json(request)).await;
+        let result_no_tools = count_tokens_handler(State(state), Json(request_no_tools)).await;
 
-        // Should include tool overhead (346 tokens) for Claude models
-        assert!(input_tokens > 346);
+        assert!(result_with_tools.is_ok());
+        assert!(result_no_tools.is_ok());
+
+        let tokens_with_tools = result_with_tools.unwrap().0["input_tokens"].as_i64().unwrap();
+        let tokens_no_tools = result_no_tools.unwrap().0["input_tokens"].as_i64().unwrap();
+
+        // With tools should have more tokens than without
+        assert!(tokens_with_tools > tokens_no_tools);
+        // Should have reasonable token count
+        assert!(tokens_with_tools > 0);
     }
 
     #[tokio::test]
