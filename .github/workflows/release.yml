@@ -82,3 +82,93 @@ jobs:
         with:
           files: artifacts/**/*.tar.gz
           generate_release_notes: true
+
+  homebrew:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Extract version from tag
+        id: version
+        run: |
+          # Remove 'v' prefix from tag (e.g., v1.0.4 -> 1.0.4)
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: kiro-gateway-*-apple-darwin
+
+      - name: Calculate SHA256 checksums
+        id: checksums
+        run: |
+          # Calculate SHA256 for Intel macOS
+          INTEL_SHA=$(sha256sum artifacts/kiro-gateway-x86_64-apple-darwin/kiro-gateway-x86_64-apple-darwin.tar.gz | cut -d ' ' -f 1)
+          echo "intel_sha=$INTEL_SHA" >> $GITHUB_OUTPUT
+          echo "Intel SHA256: $INTEL_SHA"
+
+          # Calculate SHA256 for Apple Silicon macOS
+          ARM_SHA=$(sha256sum artifacts/kiro-gateway-aarch64-apple-darwin/kiro-gateway-aarch64-apple-darwin.tar.gz | cut -d ' ' -f 1)
+          echo "arm_sha=$ARM_SHA" >> $GITHUB_OUTPUT
+          echo "ARM SHA256: $ARM_SHA"
+
+      - name: Generate Homebrew formula
+        run: |
+          cat > kiro-gateway.rb <<EOF
+          class KiroGateway < Formula
+            desc "High-performance proxy gateway for Kiro API - OpenAI and Anthropic compatible"
+            homepage "https://github.com/if414013/rkgw"
+            version "${{ steps.version.outputs.version }}"
+            license "AGPL-3.0"
+
+            on_macos do
+              on_intel do
+                url "https://github.com/if414013/rkgw/releases/download/v${{ steps.version.outputs.version }}/kiro-gateway-x86_64-apple-darwin.tar.gz"
+                sha256 "${{ steps.checksums.outputs.intel_sha }}"
+              end
+
+              on_arm do
+                url "https://github.com/if414013/rkgw/releases/download/v${{ steps.version.outputs.version }}/kiro-gateway-aarch64-apple-darwin.tar.gz"
+                sha256 "${{ steps.checksums.outputs.arm_sha }}"
+              end
+            end
+
+            def install
+              bin.install "kiro-gateway"
+            end
+
+            test do
+              assert_match "kiro-gateway", shell_output("#{bin}/kiro-gateway --version", 2)
+            end
+          end
+          EOF
+
+          echo "Generated formula:"
+          cat kiro-gateway.rb
+
+      - name: Push to Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          # Configure git
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Clone the tap repository
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/if414013/homebrew-tvps.git tap-repo
+
+          # Ensure Formula directory exists
+          mkdir -p tap-repo/Formula
+
+          # Copy the formula
+          cp kiro-gateway.rb tap-repo/Formula/kiro-gateway.rb
+
+          # Commit and push
+          cd tap-repo
+          git add Formula/kiro-gateway.rb
+          git commit -m "Update kiro-gateway to ${{ steps.version.outputs.version }}"
+          git push origin main
