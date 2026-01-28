@@ -1642,6 +1642,7 @@ pub async fn stream_kiro_to_openai(
     first_token_timeout_secs: u64,
     input_tokens: i32,
     output_tokens_tracker: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
+    include_usage: bool,
 ) -> Result<BoxStream<'static, Result<String, ApiError>>, ApiError> {
     let completion_id = generate_completion_id();
     let created_time = chrono::Utc::now().timestamp();
@@ -1659,12 +1660,14 @@ pub async fn stream_kiro_to_openai(
         first_chunk: bool,
         tool_calls: Vec<ToolUse>,
         usage: Option<Usage>,
+        total_chars: usize, // Track character count for token estimation
     }
 
     let state = Arc::new(Mutex::new(StreamState {
         first_chunk: true,
         tool_calls: Vec::new(),
         usage: None,
+        total_chars: 0,
     }));
 
     let completion_id_clone = completion_id.clone();
@@ -1672,13 +1675,16 @@ pub async fn stream_kiro_to_openai(
 
     // Clone state for use in final stream
     let state_for_final = state.clone();
+    
+    // Clone tracker for stream processing
+    let tracker_for_stream = output_tokens_tracker.clone();
 
     // Convert to OpenAI chunks
     let openai_stream = kiro_stream.filter_map(move |event_result| {
         let completion_id = completion_id_clone.clone();
         let model = model_clone.clone();
         let state = state.clone();
-        let tracker = output_tokens_tracker.clone();
+        let tracker = tracker_for_stream.clone();
 
         async move {
             match event_result {
@@ -1688,6 +1694,9 @@ pub async fn stream_kiro_to_openai(
                     match event.event_type.as_str() {
                         "content" => {
                             if let Some(content) = event.content {
+                                // Track character count for token estimation
+                                state.total_chars += content.len();
+                                
                                 let delta = ChatCompletionChunkDelta {
                                     role: if state.first_chunk {
                                         Some("assistant".to_string())
@@ -1725,6 +1734,9 @@ pub async fn stream_kiro_to_openai(
                         }
                         "thinking" => {
                             if let Some(thinking) = event.thinking_content {
+                                // Track character count for token estimation
+                                state.total_chars += thinking.len();
+                                
                                 let delta = ChatCompletionChunkDelta {
                                     role: if state.first_chunk {
                                         Some("assistant".to_string())
@@ -1789,6 +1801,7 @@ pub async fn stream_kiro_to_openai(
     // Add final chunk with tool calls, usage, and [DONE]
     let completion_id_for_final = completion_id.clone();
     let model_for_final = model.clone();
+    let tracker_for_final = output_tokens_tracker.clone();
     let final_chunks_stream = futures::stream::unfold(
         Some((
             state_for_final,
@@ -1796,9 +1809,10 @@ pub async fn stream_kiro_to_openai(
             model_for_final,
             created_time,
             input_tokens,
+            tracker_for_final,
         )),
         move |state_opt| async move {
-            let (state_arc, completion_id, model, created_time, input_tokens) = state_opt?;
+            let (state_arc, completion_id, model, created_time, input_tokens, tracker) = state_opt?;
             let state = state_arc.lock().unwrap();
             let mut final_chunks = Vec::new();
 
@@ -1856,12 +1870,55 @@ pub async fn stream_kiro_to_openai(
             };
 
             // Calculate usage - use our calculated input_tokens, output from Kiro
-            let usage_obj = state.usage.as_ref().map(|u| ChatCompletionUsage {
-                    prompt_tokens: input_tokens,
-                    completion_tokens: u.output_tokens,
-                    total_tokens: input_tokens + u.output_tokens,
-                    credits_used: None,
-                });
+            // Only include usage if explicitly requested via stream_options.include_usage
+            let usage_obj = if include_usage {
+                if let Some(ref u) = state.usage {
+                    tracing::info!(
+                        "Including usage in final chunk: prompt_tokens={}, completion_tokens={}, total_tokens={}",
+                        input_tokens,
+                        u.output_tokens,
+                        input_tokens + u.output_tokens
+                    );
+                    Some(ChatCompletionUsage {
+                        prompt_tokens: input_tokens,
+                        completion_tokens: u.output_tokens,
+                        total_tokens: input_tokens + u.output_tokens,
+                        credits_used: None,
+                    })
+                } else {
+                    // Fallback: Estimate output tokens from character count
+                    // Using industry standard: ~4 characters per token (same as OpenCode)
+                    let estimated_output_tokens = (state.total_chars / 4) as i32;
+                    
+                    if estimated_output_tokens > 0 {
+                        tracing::info!(
+                            "No usage data from Kiro API - using estimation: prompt_tokens={}, completion_tokens={} (estimated from {} chars), total_tokens={}",
+                            input_tokens,
+                            estimated_output_tokens,
+                            state.total_chars,
+                            input_tokens + estimated_output_tokens
+                        );
+                        
+                        // Update metrics tracker with estimated tokens
+                        if let Some(ref t) = tracker {
+                            t.store(estimated_output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        
+                        Some(ChatCompletionUsage {
+                            prompt_tokens: input_tokens,
+                            completion_tokens: estimated_output_tokens,
+                            total_tokens: input_tokens + estimated_output_tokens,
+                            credits_used: None,
+                        })
+                    } else {
+                        tracing::warn!("include_usage=true but no usage data received from Kiro API and no content to estimate from");
+                        None
+                    }
+                }
+            } else {
+                tracing::debug!("Excluding usage from final chunk (include_usage=false)");
+                None
+            };
 
             // Final chunk with finish_reason and usage
             let final_chunk = ChatCompletionChunk {
