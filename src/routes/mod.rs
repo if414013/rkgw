@@ -95,27 +95,6 @@ fn error_type_from_api_error(err: &ApiError) -> &'static str {
     }
 }
 
-/// Add usage headers to response builder
-/// These headers allow clients like OpenCode to display context window usage
-fn add_usage_headers(
-    builder: axum::http::response::Builder,
-    input_tokens: i32,
-    output_tokens: i32,
-) -> axum::http::response::Builder {
-    // Use generous placeholder limits since we're a proxy without real rate limits
-    // These values are based on Anthropic's Tier 4 limits
-    const INPUT_TOKENS_LIMIT: i32 = 2_000_000;
-    const OUTPUT_TOKENS_LIMIT: i32 = 400_000;
-    
-    builder
-        // Input token headers
-        .header("anthropic-ratelimit-input-tokens-limit", INPUT_TOKENS_LIMIT.to_string())
-        .header("anthropic-ratelimit-input-tokens-remaining", (INPUT_TOKENS_LIMIT - input_tokens).to_string())
-        // Output token headers
-        .header("anthropic-ratelimit-output-tokens-limit", OUTPUT_TOKENS_LIMIT.to_string())
-        .header("anthropic-ratelimit-output-tokens-remaining", (OUTPUT_TOKENS_LIMIT - output_tokens).to_string())
-}
-
 /// Health check routes (no authentication required)
 pub fn health_routes() -> Router {
     Router::new()
@@ -361,22 +340,17 @@ async fn chat_completions_handler(
         });
 
         // Return as SSE response with proper headers
-        // For streaming, output tokens are unknown at response start, so set to 0
-        let response = add_usage_headers(
-            Response::builder()
-                .status(200)
-                .header("Content-Type", "text/event-stream")
-                .header("Cache-Control", "no-cache")
-                .header("Connection", "keep-alive"),
-            input_tokens,
-            0, // Output tokens unknown for streaming
-        )
-        .body(Body::from_stream(byte_stream))
-        .map_err(|e| {
-            let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        let response = Response::builder()
+            .status(200)
+            .header("Content-Type", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "keep-alive")
+            .body(Body::from_stream(byte_stream))
+            .map_err(|e| {
+                let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
+                state.metrics.record_error(error_type_from_api_error(&err));
+                err
+            })?;
 
         std::mem::drop(guard);
 
@@ -411,29 +385,7 @@ async fn chat_completions_handler(
 
         DEBUG_LOGGER.discard_buffers().await;
 
-        // Build response with usage headers
-        let mut response = Json(openai_response).into_response();
-        let headers = response.headers_mut();
-        
-        // Add usage headers
-        headers.insert(
-            "anthropic-ratelimit-input-tokens-limit",
-            "2000000".parse().unwrap(),
-        );
-        headers.insert(
-            "anthropic-ratelimit-input-tokens-remaining",
-            (2_000_000 - input_tokens).to_string().parse().unwrap(),
-        );
-        headers.insert(
-            "anthropic-ratelimit-output-tokens-limit",
-            "400000".parse().unwrap(),
-        );
-        headers.insert(
-            "anthropic-ratelimit-output-tokens-remaining",
-            (400_000 - output_tokens as i32).to_string().parse().unwrap(),
-        );
-
-        Ok(response)
+        Ok(Json(openai_response).into_response())
     }
 }
 
@@ -604,22 +556,17 @@ async fn anthropic_messages_handler(
                 .map_err(|e| std::io::Error::other(e.to_string()))
         });
 
-        // For streaming, output tokens are unknown at response start, so set to 0
-        let response = add_usage_headers(
-            Response::builder()
-                .status(200)
-                .header("Content-Type", "text/event-stream")
-                .header("Cache-Control", "no-cache")
-                .header("Connection", "keep-alive"),
-            input_tokens,
-            0, // Output tokens unknown for streaming
-        )
-        .body(Body::from_stream(byte_stream))
-        .map_err(|e| {
-            let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
-            state.metrics.record_error(error_type_from_api_error(&err));
-            err
-        })?;
+        let response = Response::builder()
+            .status(200)
+            .header("Content-Type", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "keep-alive")
+            .body(Body::from_stream(byte_stream))
+            .map_err(|e| {
+                let err = ApiError::Internal(anyhow::anyhow!("Failed to build response: {}", e));
+                state.metrics.record_error(error_type_from_api_error(&err));
+                err
+            })?;
 
         std::mem::drop(guard);
 
@@ -654,29 +601,7 @@ async fn anthropic_messages_handler(
 
         DEBUG_LOGGER.discard_buffers().await;
 
-        // Build response with usage headers
-        let mut response = Json(anthropic_response).into_response();
-        let headers = response.headers_mut();
-        
-        // Add usage headers
-        headers.insert(
-            "anthropic-ratelimit-input-tokens-limit",
-            "2000000".parse().unwrap(),
-        );
-        headers.insert(
-            "anthropic-ratelimit-input-tokens-remaining",
-            (2_000_000 - input_tokens).to_string().parse().unwrap(),
-        );
-        headers.insert(
-            "anthropic-ratelimit-output-tokens-limit",
-            "400000".parse().unwrap(),
-        );
-        headers.insert(
-            "anthropic-ratelimit-output-tokens-remaining",
-            (400_000 - output_tokens as i32).to_string().parse().unwrap(),
-        );
-
-        Ok(response)
+        Ok(Json(anthropic_response).into_response())
     }
 }
 
