@@ -14,7 +14,7 @@ use crate::models::kiro::KiroResponse;
 fn generate_message_id() -> String {
     format!(
         "msg_{}",
-        Uuid::new_v4().simple().to_string()[..24].to_string()
+        &Uuid::new_v4().simple().to_string()[..24]
     )
 }
 

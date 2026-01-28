@@ -509,7 +509,7 @@ pub fn build_kiro_payload_core(
     // Add user_input_context if present
     if user_input_context
         .as_object()
-        .map_or(false, |o| !o.is_empty())
+        .is_some_and(|o| !o.is_empty())
     {
         user_input_message["userInputMessageContext"] = user_input_context;
     }

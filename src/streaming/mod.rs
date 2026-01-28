@@ -429,6 +429,12 @@ const EVENT_PATTERNS: &[&str] = &[
     "{\"contextUsagePercentage\":",
 ];
 
+impl Default for SseParser {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SseParser {
     pub fn new() -> Self {
         Self {
@@ -1622,7 +1628,7 @@ use uuid::Uuid;
 fn generate_completion_id() -> String {
     format!(
         "chatcmpl-{}",
-        Uuid::new_v4().simple().to_string()[..24].to_string()
+        &Uuid::new_v4().simple().to_string()[..24]
     )
 }
 
@@ -1850,16 +1856,12 @@ pub async fn stream_kiro_to_openai(
             };
 
             // Calculate usage - use our calculated input_tokens, output from Kiro
-            let usage_obj = if let Some(ref u) = state.usage {
-                Some(ChatCompletionUsage {
+            let usage_obj = state.usage.as_ref().map(|u| ChatCompletionUsage {
                     prompt_tokens: input_tokens,
                     completion_tokens: u.output_tokens,
                     total_tokens: input_tokens + u.output_tokens,
                     credits_used: None,
-                })
-            } else {
-                None
-            };
+                });
 
             // Final chunk with finish_reason and usage
             let final_chunk = ChatCompletionChunk {
@@ -1922,7 +1924,7 @@ fn format_anthropic_sse_event(event_type: &str, data: &Value) -> String {
 fn generate_anthropic_message_id() -> String {
     format!(
         "msg_{}",
-        Uuid::new_v4().simple().to_string()[..24].to_string()
+        &Uuid::new_v4().simple().to_string()[..24]
     )
 }
 

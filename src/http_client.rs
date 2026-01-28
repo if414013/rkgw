@@ -283,13 +283,11 @@ impl KiroHttpClient {
 // Simple random number generation for jitter
 mod rand {
     use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hash, Hasher};
+    use std::hash::BuildHasher;
 
     pub fn random() -> f64 {
         let state = RandomState::new();
-        let mut hasher = state.build_hasher();
-        std::time::SystemTime::now().hash(&mut hasher);
-        (hasher.finish() % 1000) as f64 / 1000.0
+        (state.hash_one(std::time::SystemTime::now()) % 1000) as f64 / 1000.0
     }
 }
 

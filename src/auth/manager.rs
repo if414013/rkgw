@@ -138,7 +138,7 @@ impl AuthManager {
         let token_data = refresh::refresh_with_retry(
             &self.client,
             self.auth_type.clone(),
-            &mut *creds,
+            &mut creds,
             self.sqlite_db.as_deref(),
         )
         .await?;

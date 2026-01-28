@@ -26,8 +26,8 @@ pub fn convert_kiro_to_openai_response(
         .assistant_response_message
         .content
         .iter()
-        .filter_map(|block| match block {
-            crate::models::kiro::ContentBlock::Text { text } => Some(text.as_str()),
+        .map(|block| match block {
+            crate::models::kiro::ContentBlock::Text { text } => text.as_str(),
         })
         .collect::<Vec<_>>()
         .join("");

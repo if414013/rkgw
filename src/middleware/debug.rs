@@ -30,7 +30,7 @@ struct DebugRequestState {
 }
 
 /// Global debug logger instance
-pub static DEBUG_LOGGER: Lazy<DebugLogger> = Lazy::new(|| DebugLogger::new());
+pub static DEBUG_LOGGER: Lazy<DebugLogger> = Lazy::new(DebugLogger::new);
 
 /// Debug logger for capturing request/response data
 ///
@@ -195,7 +195,7 @@ impl DebugLogger {
         let log_line = format!("{} | {:<8} | {} | {}", timestamp, level, module, message);
 
         if self.is_immediate_write().await {
-            if let Err(_) = self.append_app_log(&log_line).await {
+            if (self.append_app_log(&log_line).await).is_err() {
                 // Silently ignore errors to avoid recursion
             }
         } else {
@@ -327,7 +327,7 @@ impl DebugLogger {
         // Try to parse as JSON for pretty printing
         if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(body) {
             let pretty = serde_json::to_string_pretty(&json_value)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             fs::write(&file_path, pretty).await?;
         } else {
             // Write raw bytes if not valid JSON
@@ -345,7 +345,7 @@ impl DebugLogger {
         // Try to parse as JSON for pretty printing
         if let Ok(json_value) = serde_json::from_slice::<serde_json::Value>(body) {
             let pretty = serde_json::to_string_pretty(&json_value)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                .map_err(std::io::Error::other)?;
             fs::write(&file_path, pretty).await?;
         } else {
             // Write raw bytes if not valid JSON
@@ -462,7 +462,7 @@ impl DebugLogger {
         });
 
         let pretty = serde_json::to_string_pretty(&error_info)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         fs::write(&file_path, pretty).await?;
 
         Ok(())
