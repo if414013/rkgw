@@ -313,6 +313,7 @@ pub fn build_kiro_payload(
 /// Core function to build Kiro payload from unified data.
 ///
 /// This is shared logic that can be used by all converters.
+#[allow(clippy::too_many_arguments)]
 pub fn build_kiro_payload_core(
     messages: Vec<UnifiedMessage>,
     system_prompt: String,

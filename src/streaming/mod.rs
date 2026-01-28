@@ -521,6 +521,7 @@ impl SseParser {
 /// are followed by binary framing data. The binary data may contain bytes that
 /// decode to quote characters when using lossy UTF-8 conversion, so we must
 /// return as soon as we find the matching brace.
+#[allow(clippy::needless_range_loop)]
 fn find_matching_brace(text: &str, start_pos: usize) -> Option<usize> {
     let bytes = text.as_bytes();
 

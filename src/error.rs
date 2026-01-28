@@ -20,6 +20,7 @@ pub enum ApiError {
 
     /// Error from Kiro API
     #[error("Kiro API error: {status} - {message}")]
+    #[allow(clippy::enum_variant_names)]
     KiroApiError { status: u16, message: String },
 
     /// Configuration error

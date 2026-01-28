@@ -194,6 +194,7 @@ pub enum StreamEvent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[allow(clippy::enum_variant_names)]
 pub enum Delta {
     TextDelta { text: String },
     ThinkingDelta { thinking: String },
