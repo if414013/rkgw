@@ -43,4 +43,4 @@ perf.data.old
 .worktrees/
 .security-key
 logs/security/
-.flox/
+
