@@ -2044,6 +2044,9 @@ pub async fn stream_kiro_to_anthropic(
     // Clone state for use in final stream
     let state_for_final = state.clone();
 
+    // Clone tracker for final events before it gets moved
+    let tracker_for_final = output_tokens_tracker.clone();
+
     // Convert Kiro events to Anthropic events
     let anthropic_stream = kiro_stream.filter_map(move |event_result| {
         let _model = _model_clone.clone();
@@ -2060,7 +2063,7 @@ pub async fn stream_kiro_to_anthropic(
                             if let Some(content) = event.content {
                                 // Accumulate text for accurate token counting
                                 state.accumulated_text.push_str(&content);
-                                
+
                                 // Start text block if not started
                                 if !state.text_block_started {
                                     state.text_block_index = state.current_block_index;
@@ -2118,7 +2121,7 @@ pub async fn stream_kiro_to_anthropic(
                             if let Some(thinking) = event.thinking_content {
                                 // Accumulate text for accurate token counting
                                 state.accumulated_text.push_str(&thinking);
-                                
+
                                 // Start thinking block if not started
                                 if !state.thinking_block_started {
                                     state.thinking_block_index = state.current_block_index;
@@ -2204,15 +2207,12 @@ pub async fn stream_kiro_to_anthropic(
         }
     });
 
-    // Clone tracker for final events
-    let tracker_for_final = output_tokens_tracker.clone();
-
     // Add final events
     let final_events_stream = futures::stream::unfold(Some(state_for_final), move |state_opt| {
         let tracker = tracker_for_final.clone();
         async move {
-        let state_arc = state_opt?;
-        let state = state_arc.lock().unwrap();
+            let state_arc = state_opt?;
+            let state = state_arc.lock().unwrap();
         let mut final_events = Vec::new();
 
         // Close thinking block if open
@@ -2300,7 +2300,7 @@ pub async fn stream_kiro_to_anthropic(
                     tokens,
                     state.accumulated_text.len()
                 );
-                
+
                 // Update metrics tracker with counted tokens
                 if let Some(ref t) = tracker {
                     t.store(tokens as u64, std::sync::atomic::Ordering::Relaxed);
@@ -2329,7 +2329,7 @@ pub async fn stream_kiro_to_anthropic(
         final_events.push(Ok(format_anthropic_sse_event("message_stop", &message_stop)));
 
         Some((futures::stream::iter(final_events), None))
-    })
+    }})
     .flatten();
 
     let final_stream = anthropic_stream.chain(final_events_stream);
@@ -2456,7 +2456,7 @@ pub async fn collect_openai_response(
         }
         tokens
     };
-    
+
     let usage_json = serde_json::json!({
         "prompt_tokens": input_tokens,
         "completion_tokens": output_tokens,
