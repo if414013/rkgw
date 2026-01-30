@@ -35,6 +35,7 @@ perf.data.old
 
 # Auto Claude data directory
 .auto-claude/
+.sisyphus/
 
 # Auto Claude generated files
 .auto-claude-security.json
