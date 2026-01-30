@@ -1663,14 +1663,14 @@ pub async fn stream_kiro_to_openai(
         first_chunk: bool,
         tool_calls: Vec<ToolUse>,
         usage: Option<Usage>,
-        total_chars: usize, // Track character count for token estimation
+        accumulated_text: String, // Accumulate all text for accurate token counting
     }
 
     let state = Arc::new(Mutex::new(StreamState {
         first_chunk: true,
         tool_calls: Vec::new(),
         usage: None,
-        total_chars: 0,
+        accumulated_text: String::new(),
     }));
 
     let completion_id_clone = completion_id.clone();
@@ -1697,8 +1697,8 @@ pub async fn stream_kiro_to_openai(
                     match event.event_type.as_str() {
                         "content" => {
                             if let Some(content) = event.content {
-                                // Track character count for token estimation
-                                state.total_chars += content.len();
+                                // Accumulate text for accurate token counting
+                                state.accumulated_text.push_str(&content);
 
                                 let delta = ChatCompletionChunkDelta {
                                     role: if state.first_chunk {
@@ -1737,8 +1737,8 @@ pub async fn stream_kiro_to_openai(
                         }
                         "thinking" => {
                             if let Some(thinking) = event.thinking_content {
-                                // Track character count for token estimation
-                                state.total_chars += thinking.len();
+                                // Accumulate text for accurate token counting
+                                state.accumulated_text.push_str(&thinking);
 
                                 let delta = ChatCompletionChunkDelta {
                                     role: if state.first_chunk {
@@ -1889,32 +1889,31 @@ pub async fn stream_kiro_to_openai(
                         credits_used: None,
                     })
                 } else {
-                    // Fallback: Estimate output tokens from character count
-                    // Using industry standard: ~4 characters per token (same as OpenCode)
-                    let estimated_output_tokens = (state.total_chars / 4) as i32;
+                    // Fallback: Count output tokens using tiktoken (same method as input tokens)
+                    let output_tokens = crate::tokenizer::count_tokens(&state.accumulated_text, false);
 
-                    if estimated_output_tokens > 0 {
+                    if output_tokens > 0 {
                         tracing::info!(
-                            "No usage data from Kiro API - using estimation: prompt_tokens={}, completion_tokens={} (estimated from {} chars), total_tokens={}",
+                            "No usage data from Kiro API - using tiktoken count: prompt_tokens={}, completion_tokens={} (counted from {} chars), total_tokens={}",
                             input_tokens,
-                            estimated_output_tokens,
-                            state.total_chars,
-                            input_tokens + estimated_output_tokens
+                            output_tokens,
+                            state.accumulated_text.len(),
+                            input_tokens + output_tokens
                         );
 
-                        // Update metrics tracker with estimated tokens
+                        // Update metrics tracker with counted tokens
                         if let Some(ref t) = tracker {
-                            t.store(estimated_output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                            t.store(output_tokens as u64, std::sync::atomic::Ordering::Relaxed);
                         }
 
                         Some(ChatCompletionUsage {
                             prompt_tokens: input_tokens,
-                            completion_tokens: estimated_output_tokens,
-                            total_tokens: input_tokens + estimated_output_tokens,
+                            completion_tokens: output_tokens,
+                            total_tokens: input_tokens + output_tokens,
                             credits_used: None,
                         })
                     } else {
-                        tracing::warn!("include_usage=true but no usage data received from Kiro API and no content to estimate from");
+                        tracing::warn!("include_usage=true but no usage data received from Kiro API and no content to count from");
                         None
                     }
                 }
@@ -2015,6 +2014,7 @@ pub async fn stream_kiro_to_anthropic(
         current_block_index: i32,
         tool_calls: Vec<ToolUse>,
         usage: Option<Usage>,
+        accumulated_text: String, // Accumulate all text for accurate token counting
     }
 
     let state = Arc::new(Mutex::new(StreamState::default()));
@@ -2044,6 +2044,9 @@ pub async fn stream_kiro_to_anthropic(
     // Clone state for use in final stream
     let state_for_final = state.clone();
 
+    // Clone tracker for final events before it gets moved
+    let tracker_for_final = output_tokens_tracker.clone();
+
     // Convert Kiro events to Anthropic events
     let anthropic_stream = kiro_stream.filter_map(move |event_result| {
         let _model = _model_clone.clone();
@@ -2058,6 +2061,9 @@ pub async fn stream_kiro_to_anthropic(
                     match event.event_type.as_str() {
                         "content" => {
                             if let Some(content) = event.content {
+                                // Accumulate text for accurate token counting
+                                state.accumulated_text.push_str(&content);
+
                                 // Start text block if not started
                                 if !state.text_block_started {
                                     state.text_block_index = state.current_block_index;
@@ -2113,6 +2119,9 @@ pub async fn stream_kiro_to_anthropic(
                         }
                         "thinking" => {
                             if let Some(thinking) = event.thinking_content {
+                                // Accumulate text for accurate token counting
+                                state.accumulated_text.push_str(&thinking);
+
                                 // Start thinking block if not started
                                 if !state.thinking_block_started {
                                     state.thinking_block_index = state.current_block_index;
@@ -2199,9 +2208,11 @@ pub async fn stream_kiro_to_anthropic(
     });
 
     // Add final events
-    let final_events_stream = futures::stream::unfold(Some(state_for_final), move |state_opt| async move {
-        let state_arc = state_opt?;
-        let state = state_arc.lock().unwrap();
+    let final_events_stream = futures::stream::unfold(Some(state_for_final), move |state_opt| {
+        let tracker = tracker_for_final.clone();
+        async move {
+            let state_arc = state_opt?;
+            let state = state_arc.lock().unwrap();
         let mut final_events = Vec::new();
 
         // Close thinking block if open
@@ -2281,7 +2292,21 @@ pub async fn stream_kiro_to_anthropic(
         let output_tokens = if let Some(ref u) = state.usage {
             u.output_tokens
         } else {
-            0
+            // Fallback: Count output tokens using tiktoken (same method as input tokens)
+            let tokens = crate::tokenizer::count_tokens(&state.accumulated_text, false);
+            if tokens > 0 {
+                tracing::info!(
+                    "No usage data from Kiro API - using tiktoken count: output_tokens={} (counted from {} chars)",
+                    tokens,
+                    state.accumulated_text.len()
+                );
+
+                // Update metrics tracker with counted tokens
+                if let Some(ref t) = tracker {
+                    t.store(tokens as u64, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+            tokens
         };
 
         // Send message_delta with stop_reason
@@ -2304,7 +2329,7 @@ pub async fn stream_kiro_to_anthropic(
         final_events.push(Ok(format_anthropic_sse_event("message_stop", &message_stop)));
 
         Some((futures::stream::iter(final_events), None))
-    })
+    }})
     .flatten();
 
     let final_stream = anthropic_stream.chain(final_events_stream);
@@ -2415,19 +2440,28 @@ pub async fn collect_openai_response(
     };
 
     // Build usage - use our calculated input_tokens, output from Kiro
-    let usage_json = if let Some(u) = usage {
-        serde_json::json!({
-            "prompt_tokens": input_tokens,
-            "completion_tokens": u.output_tokens,
-            "total_tokens": input_tokens + u.output_tokens
-        })
+    let output_tokens = if let Some(u) = usage {
+        u.output_tokens
     } else {
-        serde_json::json!({
-            "prompt_tokens": input_tokens,
-            "completion_tokens": 0,
-            "total_tokens": input_tokens
-        })
+        // Fallback: Count output tokens using tiktoken (same method as input tokens)
+        let mut accumulated_text = full_content.clone();
+        accumulated_text.push_str(&full_reasoning_content);
+        let tokens = crate::tokenizer::count_tokens(&accumulated_text, false);
+        if tokens > 0 {
+            tracing::info!(
+                "No usage data from Kiro API - using tiktoken count: output_tokens={} (counted from {} chars)",
+                tokens,
+                accumulated_text.len()
+            );
+        }
+        tokens
     };
+
+    let usage_json = serde_json::json!({
+        "prompt_tokens": input_tokens,
+        "completion_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens
+    });
 
     // Build complete response
     let response = serde_json::json!({
@@ -2543,7 +2577,18 @@ pub async fn collect_anthropic_response(
     let output_tokens = if let Some(u) = usage {
         u.output_tokens
     } else {
-        0
+        // Fallback: Count output tokens using tiktoken (same method as input tokens)
+        let mut accumulated_text = full_content.clone();
+        accumulated_text.push_str(&full_thinking_content);
+        let tokens = crate::tokenizer::count_tokens(&accumulated_text, false);
+        if tokens > 0 {
+            tracing::info!(
+                "No usage data from Kiro API - using tiktoken count: output_tokens={} (counted from {} chars)",
+                tokens,
+                accumulated_text.len()
+            );
+        }
+        tokens
     };
 
     // Build complete response
