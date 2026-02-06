@@ -7,7 +7,7 @@
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
 
-*A Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway) — Use Claude models through any OpenAI or Anthropic compatible tool*
+_A Rust rewrite of [kiro-gateway](https://github.com/jwadow/kiro-gateway) — Use Claude models through any OpenAI or Anthropic compatible tool_
 
 [Features](#-features) • [Quick Start](#-quick-start) • [Configuration](#-configuration) • [API Reference](#-api-reference)
 
@@ -20,6 +20,7 @@
 This project is a Rust rewrite of the original [kiro-gateway](https://github.com/jwadow/kiro-gateway) by [@Jwadow](https://github.com/jwadow). The original project is written in Python using FastAPI.
 
 **Why Rust?**
+
 - ⚡ Faster startup time and lower memory footprint
 - 🔒 Memory safety without garbage collection
 - 📦 Single binary deployment — no runtime dependencies
@@ -28,13 +29,13 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 ## 🤖 Supported Models
 
-| Model | Description |
-|-------|-------------|
-| 🧠 **Claude Opus 4.5** | Most powerful. Complex reasoning, deep analysis, research |
-| 🚀 **Claude Sonnet 4.5** | Balanced. Coding, writing, general-purpose |
-| ⚡ **Claude Haiku 4.5** | Lightning fast. Quick responses, simple tasks |
-| 📦 **Claude Sonnet 4** | Previous generation. Reliable for most use cases |
-| 📦 **Claude 3.7 Sonnet** | Legacy model. Backward compatibility |
+| Model                    | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| 🧠 **Claude Opus 4.5**   | Most powerful. Complex reasoning, deep analysis, research |
+| 🚀 **Claude Sonnet 4.5** | Balanced. Coding, writing, general-purpose                |
+| ⚡ **Claude Haiku 4.5**  | Lightning fast. Quick responses, simple tasks             |
+| 📦 **Claude Sonnet 4**   | Previous generation. Reliable for most use cases          |
+| 📦 **Claude 3.7 Sonnet** | Legacy model. Backward compatibility                      |
 
 > 💡 **Smart Model Resolution:** Use any model name format — `claude-sonnet-4-5`, `claude-sonnet-4.5`, or versioned names like `claude-sonnet-4-5-20250929`. The gateway normalizes them automatically.
 
@@ -42,18 +43,18 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 ## ✨ Features
 
-| Feature | Description |
-|---------|-------------|
-| 🔌 **OpenAI-compatible API** | Works with any OpenAI-compatible tool |
-| 🔌 **Anthropic-compatible API** | Native `/v1/messages` endpoint |
-| 🧠 **Extended Thinking** | Reasoning support |
-| 👁️ **Vision Support** | Send images to model |
-| 🛠️ **Tool Calling** | Function calling support |
-| 💬 **Full message history** | Complete conversation context |
-| 📡 **Streaming** | Full SSE streaming support |
-| 🔄 **Retry Logic** | Automatic retries on errors |
-| 🔐 **Smart token management** | Automatic refresh before expiration |
-| 📊 **Live Dashboard** | Real-time TUI with metrics, logs, and token usage (toggle with `--dashboard` or press `d`) |
+| Feature                         | Description                                                                                |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| 🔌 **OpenAI-compatible API**    | Works with any OpenAI-compatible tool                                                      |
+| 🔌 **Anthropic-compatible API** | Native `/v1/messages` endpoint                                                             |
+| 🧠 **Extended Thinking**        | Reasoning support                                                                          |
+| 👁️ **Vision Support**           | Send images to model                                                                       |
+| 🛠️ **Tool Calling**             | Function calling support                                                                   |
+| 💬 **Full message history**     | Complete conversation context                                                              |
+| 📡 **Streaming**                | Full SSE streaming support                                                                 |
+| 🔄 **Retry Logic**              | Automatic retries on errors                                                                |
+| 🔐 **Smart token management**   | Automatic refresh before expiration                                                        |
+| 📊 **Live Dashboard**           | Real-time TUI with metrics, logs, and token usage (toggle with `--dashboard` or press `d`) |
 
 ---
 
@@ -99,6 +100,7 @@ The server will be available at `http://localhost:8000`
 ## ⚙️ Configuration
 
 On first run, `kiro-gateway` will guide you through an interactive setup if no `.env` file is found. It will:
+
 - Prompt for a password to protect your gateway
 - Auto-detect your kiro-cli database location
 - Let you choose the AWS region
@@ -123,12 +125,12 @@ KIRO_REGION="us-east-1"
 
 The gateway auto-detects the kiro-cli database from these common locations:
 
-| Platform | Path |
-|----------|------|
-| **macOS** | `~/Library/Application Support/kiro-cli/data.sqlite3` |
-| **Linux** | `~/.local/share/kiro-cli/data.sqlite3` |
-| **macOS (old)** | `~/Library/Application Support/kiro-cli/data.db` |
-| **Legacy** | `~/.kiro/data.db` |
+| Platform        | Path                                                  |
+| --------------- | ----------------------------------------------------- |
+| **macOS**       | `~/Library/Application Support/kiro-cli/data.sqlite3` |
+| **Linux**       | `~/.local/share/kiro-cli/data.sqlite3`                |
+| **macOS (old)** | `~/Library/Application Support/kiro-cli/data.db`      |
+| **Legacy**      | `~/.kiro/data.db`                                     |
 
 The gateway reads credentials from the kiro-cli SQLite database and automatically refreshes tokens before expiration.
 
@@ -203,37 +205,82 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
         "baseURL": "http://127.0.0.1:9000/v1",
         "apiKey": "your-proxy-api-key"
       },
-      "models": {
-        "auto": {
-          "name": "Auto"
+      "auto": {
+        "name": "Auto"
+      },
+      "claude-haiku-4.5": {
+        "name": "Claude Haiku 4.5",
+        "limit": {
+          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
+          "output": 64000
         },
-        "claude-haiku-4.5": {
-          "name": "Claude Haiku 4.5",
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
+        }
+      },
+      "claude-opus-4.5": {
+        "name": "Claude Opus 4.5",
+        "limit": {
+          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
+          "output": 64000
         },
-        "claude-opus-4.5": {
-          "name": "Claude Opus 4.5",
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
         },
-        "claude-sonnet-4": {
-          "name": "Claude Sonnet 4",
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
+        "variants": {
+          "low": {
+            "thinkingConfig": {
+              "thinkingBudget": 4096
+            }
+          },
+          "max": {
+            "thinkingConfig": {
+              "thinkingBudget": 32768
+            }
           }
+        }
+      },
+      "claude-opus-4.6": {
+        "name": "Claude Opus 4.6",
+        "limit": {
+          "context": 980000, // NOTE: 0.98x limit for earlier auto compaction
+          "output": 128000
         },
-        "claude-sonnet-4.5": {
-          "name": "Claude Sonnet 4.5",
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
+        },
+        "variants": {
+          "low": {
+            "thinkingConfig": { "type": "adaptive", "effort": "low" }
+          },
+          "max": {
+            "thinkingConfig": { "type": "adaptive", "effort": "max" }
           }
+        }
+      },
+      "claude-sonnet-4": {
+        "name": "Claude Sonnet 4",
+        "limit": {
+          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
+          "output": 64000
+        },
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
+        }
+      },
+      "claude-sonnet-4.5": {
+        "name": "Claude Sonnet 4.5",
+        "limit": {
+          "context": 180000, // NOTE: 0.9x limit for earlier auto compaction
+          "output": 64000
+        },
+        "modalities": {
+          "input": ["text", "image"],
+          "output": ["text"]
         }
       }
     }
@@ -257,11 +304,13 @@ https://github.com/user-attachments/assets/f404096e-b326-41e5-a4b3-3f94a73d2ece
 To use this gateway with [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), set the following environment variables:
 
 **One-liner:**
+
 ```bash
 ANTHROPIC_BASE_URL=http://127.0.0.1:8000 ANTHROPIC_AUTH_TOKEN=your-proxy-api-key CLAUDE_CODE_ENABLE_TELEMETRY=0 DISABLE_PROMPT_CACHING=1 DISABLE_NON_ESSENTIAL_MODEL_CALLS=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 claude
 ```
 
 **Or add to your shell profile** (`~/.bashrc`, `~/.zshrc`, etc.):
+
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:8000
 export ANTHROPIC_AUTH_TOKEN=your-proxy-api-key
@@ -271,14 +320,14 @@ export DISABLE_NON_ESSENTIAL_MODEL_CALLS=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 ```
 
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_BASE_URL` | Points Claude Code to your gateway |
-| `ANTHROPIC_AUTH_TOKEN` | Your `PROXY_API_KEY` value |
-| `CLAUDE_CODE_ENABLE_TELEMETRY` | Disable telemetry |
-| `DISABLE_PROMPT_CACHING` | Disable prompt caching (not supported by gateway) |
-| `DISABLE_NON_ESSENTIAL_MODEL_CALLS` | Reduce unnecessary API calls |
-| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic |
+| Variable                                   | Description                                       |
+| ------------------------------------------ | ------------------------------------------------- |
+| `ANTHROPIC_BASE_URL`                       | Points Claude Code to your gateway                |
+| `ANTHROPIC_AUTH_TOKEN`                     | Your `PROXY_API_KEY` value                        |
+| `CLAUDE_CODE_ENABLE_TELEMETRY`             | Disable telemetry                                 |
+| `DISABLE_PROMPT_CACHING`                   | Disable prompt caching (not supported by gateway) |
+| `DISABLE_NON_ESSENTIAL_MODEL_CALLS`        | Reduce unnecessary API calls                      |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic             |
 
 > **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file.
 
@@ -309,6 +358,7 @@ cargo bench
 This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
 This means:
+
 - ✅ You can use, modify, and distribute this software
 - ✅ You can use it for commercial purposes
 - ⚠️ **You must disclose source code** when you distribute the software
