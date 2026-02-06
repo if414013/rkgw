@@ -203,7 +203,7 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
       "npm": "@ai-sdk/openai-compatible",
       "name": "Kiro Proxy",
       "options": {
-        "baseURL": "http://127.0.0.1:9000/v1",
+        "baseURL": "http://127.0.0.1:8000/v1",
         "apiKey": "your-proxy-api-key"
       },
       "auto": {
@@ -330,7 +330,37 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 | `DISABLE_NON_ESSENTIAL_MODEL_CALLS`        | Reduce unnecessary API calls                      |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic             |
 
-> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. The default port is `8000`, but can be changed via the interactive setup prompt or `SERVER_PORT` in your `.env` file.
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`.
+
+</details>
+
+---
+
+## 🖥️ Zed Editor Setup
+
+<details>
+<summary>View Zed Editor configuration</summary>
+
+To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, add the following configuration to your Zed settings file at `~/.config/zed/settings.json`:
+
+```json
+{
+  "agent_servers": {
+    "claude": {
+      "env": {
+        "ANTHROPIC_BASE_URL": "http://127.0.0.1:8000",
+        "ANTHROPIC_AUTH_TOKEN": "your-proxy-api-key",
+        "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+        "DISABLE_PROMPT_CACHING": "1",
+        "DISABLE_NON_ESSENTIAL_MODEL_CALLS": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+      }
+    }
+  }
+}
+```
+
+> **Note:** Replace `your-proxy-api-key` with the value of your `PROXY_API_KEY`. After updating the settings, restart Zed for the changes to take effect.
 
 </details>
 
