@@ -31,6 +31,7 @@ This project is a Rust rewrite of the original [kiro-gateway](https://github.com
 
 | Model                    | Description                                               |
 | ------------------------ | --------------------------------------------------------- |
+| 🧠 **Claude Opus 4.6**   | Latest flagship. 1M context (beta), 128K output, adaptive thinking |
 | 🧠 **Claude Opus 4.5**   | Most powerful. Complex reasoning, deep analysis, research |
 | 🚀 **Claude Sonnet 4.5** | Balanced. Coding, writing, general-purpose                |
 | ⚡ **Claude Haiku 4.5**  | Lightning fast. Quick responses, simple tasks             |
