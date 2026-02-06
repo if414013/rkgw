@@ -228,6 +228,18 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
         "modalities": {
           "input": ["text", "image"],
           "output": ["text"]
+        },
+        "variants": {
+          "low": {
+            "thinkingConfig": {
+              "thinkingBudget": 4096
+            }
+          },
+          "max": {
+            "thinkingConfig": {
+              "thinkingBudget": 32768
+            }
+          }
         }
       },
       "claude-opus-4.6": {
@@ -239,6 +251,14 @@ https://github.com/user-attachments/assets/7a3ab9ba-15b4-4b96-95df-158602ed08b0
         "modalities": {
           "input": ["text", "image"],
           "output": ["text"]
+        },
+        "variants": {
+          "low": {
+            "thinkingConfig": { "type": "adaptive", "effort": "low" }
+          },
+          "max": {
+            "thinkingConfig": { "type": "adaptive", "effort": "max" }
+          }
         }
       },
       "claude-sonnet-4": {
