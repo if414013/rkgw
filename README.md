@@ -341,7 +341,8 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 <details>
 <summary>View Zed Editor configuration</summary>
 
-To use this gateway with the [Zed Editor](https://zed.dev/)'s ACP Claude Agent, add the following configuration to your Zed settings file at `~/.config/zed/settings.json`:
+To use this gateway with the [Zed Editor](https://zed.dev/)'s Agent Client Protocol (ACP)
+ Claude Agent, add the following configuration to your Zed settings file at `~/.config/zed/settings.json`:
 
 ```json
 {
